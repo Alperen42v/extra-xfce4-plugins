@@ -1,0 +1,10 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+X-XFCE-API=2.0
+X-XFCE-Module=caffeine
+X-XFCE-Internal=false
+
+Name=Caffeine
+Comment=Keep your screen awake with one click
+Icon=preferences-desktop-screensaver
