@@ -97,6 +97,14 @@ typedef struct
      * fields mean "not provided", triggering the Cairo-drawn fallback */
     CaffeineIconSet *icons;
     guint             icon_frame_index; /* which on_frames[] entry is showing now */
+    gint              icon_pixel_size;  /* last size the panel reported via
+                                          * size-changed (or the button's initial
+                                          * request); used to (re)load icons at the
+                                          * right size without depending on
+                                          * gtk_widget_get_allocation(), which can
+                                          * still read 0 very early on before the
+                                          * widget has been through GTK's full
+                                          * size-allocate pass */
 
     /* preferences: self-triggered lock+blank cycle while caffeine is on */
     CaffeineSettings settings;
@@ -106,6 +114,12 @@ typedef struct
     /* preferences: screen-off-only timer, independent of the lock cycle -
      * see CaffeineScreenOffMode in this file for what it does */
     guint      screen_off_timer_id; /* 0 = no timer running (disabled or caffeine off) */
+
+    /* signal handler id for GtkSettings::notify::gtk-application-prefer-
+     * dark-theme, so AUTO icon theme mode follows live system theme
+     * changes (and corrects itself if the theme wasn't settled yet at
+     * construct time). 0 = not connected. */
+    gulong     theme_notify_handler_id;
 
 } CaffeinePlugin;
 

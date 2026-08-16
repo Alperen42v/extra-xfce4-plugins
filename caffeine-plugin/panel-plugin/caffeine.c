@@ -623,6 +623,14 @@ caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
     if (caffeine->animation_timer_id != 0)
         g_source_remove (caffeine->animation_timer_id);
 
+    if (caffeine->theme_notify_handler_id != 0)
+    {
+        GtkSettings *gtk_settings = gtk_settings_get_default ();
+        if (gtk_settings != NULL)
+            g_signal_handler_disconnect (gtk_settings, caffeine->theme_notify_handler_id);
+        caffeine->theme_notify_handler_id = 0;
+    }
+
     caffeine_lock_cycle_stop (caffeine);
     caffeine_screen_off_stop (caffeine);
 
@@ -640,28 +648,29 @@ caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
     g_free (caffeine);
 }
 
+/*
+ * Reloads the custom icon set at the icon area's current pixel size.
+ * Used when the system theme changes live (AUTO mode), when the user
+ * picks a different theme in Preferences, and by caffeine_size_changed()
+ * below on every panel resize - same operation either way, just
+ * triggered from different places.
+ */
 static void
-caffeine_configure_plugin (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
+caffeine_reload_icons (CaffeinePlugin *caffeine)
 {
-    if (caffeine_show_preferences (plugin, &caffeine->settings, caffeine->xfconf_channel_name))
-    {
-        GtkAllocation alloc;
+    /* Uses the last size the panel actually told us about (via
+     * size-changed at construct time, kept up to date after) rather than
+     * gtk_widget_get_allocation() - allocation can still read 0 very
+     * early in the widget's life, before GTK has run a full size-allocate
+     * pass on it, which previously caused icon loads to silently no-op
+     * and, worse, leave caffeine->icons pointing at nothing to draw. */
+    if (caffeine->icon_pixel_size <= 0)
+        return;
 
-        /* settings changed and were saved - if caffeine is currently on,
-         * restart both timers so the new intervals take effect
-         * immediately instead of waiting for the next toggle */
-        caffeine_lock_cycle_restart (caffeine);
-        caffeine_screen_off_restart (caffeine);
-
-        /* icon theme (light/dark/auto) may have changed too - reload at
-         * the icon area's current pixel size so it takes effect right
-         * away instead of waiting for the next panel resize */
-        gtk_widget_get_allocation (caffeine->icon_area, &alloc);
-        caffeine_icon_set_free (caffeine->icons);
-        caffeine->icons = caffeine_icons_load (alloc.width, caffeine->settings.icon_theme);
-        caffeine->icon_frame_index = 0;
-        gtk_widget_queue_draw (caffeine->icon_area);
-    }
+    caffeine_icon_set_free (caffeine->icons);
+    caffeine->icons = caffeine_icons_load (caffeine->icon_pixel_size, caffeine->settings.icon_theme);
+    caffeine->icon_frame_index = 0;
+    gtk_widget_queue_draw (caffeine->icon_area);
 }
 
 static gboolean
@@ -672,13 +681,49 @@ caffeine_size_changed (XfcePanelPlugin *plugin, gint size, CaffeinePlugin *caffe
 
     /* custom PNGs are pre-scaled to the icon area's pixel size, so a
      * panel resize means reloading them at the new size */
-    caffeine_icon_set_free (caffeine->icons);
-    caffeine->icons = caffeine_icons_load (size, caffeine->settings.icon_theme);
-    caffeine->icon_frame_index = 0;
-
-    gtk_widget_queue_draw (caffeine->icon_area);
+    caffeine->icon_pixel_size = size;
+    caffeine_reload_icons (caffeine);
 
     return TRUE;
+}
+
+/*
+ * Fires whenever GTK's own "prefer dark theme" setting changes - covers
+ * both the case where xfsettingsd hadn't finished pushing the real
+ * XSETTINGS values yet at construct time (the icon set loaded initially
+ * can be wrong purely due to that startup race) and the case where the
+ * user switches their system theme live while caffeine is running. Only
+ * acts when the user has AUTO selected - in LIGHT/DARK mode the choice
+ * is pinned regardless of what the system theme does.
+ */
+static void
+on_gtk_theme_notify (GObject *settings, GParamSpec *pspec, gpointer user_data)
+{
+    CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
+
+    (void) settings;
+    (void) pspec;
+
+    if (caffeine->settings.icon_theme == CAFFEINE_ICON_THEME_AUTO)
+        caffeine_reload_icons (caffeine);
+}
+
+static void
+caffeine_configure_plugin (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
+{
+    if (caffeine_show_preferences (plugin, &caffeine->settings, caffeine->xfconf_channel_name))
+    {
+        /* settings changed and were saved - if caffeine is currently on,
+         * restart both timers so the new intervals take effect
+         * immediately instead of waiting for the next toggle */
+        caffeine_lock_cycle_restart (caffeine);
+        caffeine_screen_off_restart (caffeine);
+
+        /* icon theme (light/dark/auto) may have changed too - reload at
+         * the icon area's current pixel size so it takes effect right
+         * away instead of waiting for the next panel resize */
+        caffeine_reload_icons (caffeine);
+    }
 }
 
 void
@@ -696,6 +741,7 @@ caffeine_construct (XfcePanelPlugin *plugin)
     caffeine->animation_phase = 0.0;
     caffeine->lock_cycle_timer_id = 0;
     caffeine->screen_off_timer_id = 0;
+    caffeine->theme_notify_handler_id = 0;
     caffeine->icon_frame_index = 0;
 
     /* unique xfconf channel per plugin instance, so multiple copies of the
@@ -703,12 +749,26 @@ caffeine_construct (XfcePanelPlugin *plugin)
      * other's settings */
     caffeine->xfconf_channel_name =
         g_strdup_printf ("xfce4-caffeine-plugin-%d", xfce_panel_plugin_get_unique_id (plugin));
-    caffeine_settings_load (&caffeine->settings, caffeine->xfconf_channel_name);
 
     /* settings must be loaded first so the icon theme choice (incl. AUTO)
-     * is known before the first icon load; matches icon_area's initial
-     * size below */
-    caffeine->icons = caffeine_icons_load (24, caffeine->settings.icon_theme);
+     * is known once icons get loaded below. */
+    caffeine_settings_load (&caffeine->settings, caffeine->xfconf_channel_name);
+
+    /* xfce_panel_plugin_get_size() gives the real, current panel icon
+     * size right away - no need to wait for the first size-changed
+     * signal (which some panel configurations delay or skip entirely,
+     * previously leaving caffeine->icons NULL - and therefore the icon
+     * area blank - until a resize happened to come along). Falls back to
+     * 24 if the panel doesn't have a sensible size yet either, matching
+     * the icon_area's own initial size request below. */
+    caffeine->icon_pixel_size = xfce_panel_plugin_get_size (plugin);
+    if (caffeine->icon_pixel_size <= 0)
+        caffeine->icon_pixel_size = 24;
+
+    /* Icons are loaded further down, after theme_notify_handler_id is
+     * connected - see the comment there for why construct-time loading
+     * needs care around the system theme not being settled yet. */
+    caffeine->icons = NULL;
 
     /* button that lives in the panel */
     caffeine->button = xfce_panel_create_button ();
@@ -717,7 +777,7 @@ caffeine_construct (XfcePanelPlugin *plugin)
 
     /* drawing area for the cup icon, packed inside the button */
     caffeine->icon_area = gtk_drawing_area_new ();
-    gtk_widget_set_size_request (caffeine->icon_area, 24, 24);
+    gtk_widget_set_size_request (caffeine->icon_area, caffeine->icon_pixel_size, caffeine->icon_pixel_size);
     gtk_container_add (GTK_CONTAINER (caffeine->button), caffeine->icon_area);
 
     g_signal_connect (caffeine->icon_area, "draw",
@@ -740,6 +800,24 @@ caffeine_construct (XfcePanelPlugin *plugin)
 
     g_signal_connect (plugin, "free-data", G_CALLBACK (caffeine_free), caffeine);
     g_signal_connect (plugin, "size-changed", G_CALLBACK (caffeine_size_changed), caffeine);
+
+    /* keeps AUTO icon theme mode in sync with the live system theme -
+     * also the fix for the startup race described above, since this
+     * fires (with the now-correct value) once XSETTINGS actually lands,
+     * even if that's after our first icon load */
+    {
+        GtkSettings *gtk_settings = gtk_settings_get_default ();
+        if (gtk_settings != NULL)
+            caffeine->theme_notify_handler_id =
+                g_signal_connect (gtk_settings, "notify::gtk-application-prefer-dark-theme",
+                                   G_CALLBACK (on_gtk_theme_notify), caffeine);
+    }
+
+    /* First icon load. If AUTO is selected and XSETTINGS hasn't actually
+     * propagated to this process yet, this can still pick the wrong
+     * variant - but on_gtk_theme_notify() above will fire and correct it
+     * as soon as the real value lands, so it never stays wrong. */
+    caffeine_reload_icons (caffeine);
 }
 
 /* Register the plugin with the Xfce panel */
