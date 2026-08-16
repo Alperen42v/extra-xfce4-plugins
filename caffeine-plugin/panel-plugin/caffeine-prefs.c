@@ -15,6 +15,7 @@
 
 #define XFCONF_PROP_LOCK_CYCLE_MODE      "/lock-cycle-mode"     /* int, CaffeineLockCycleMode */
 #define XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN "/lock-cycle-custom-minutes" /* uint, >= 1 */
+#define XFCONF_PROP_ICON_THEME           "/icon-theme"          /* int, CaffeineIconTheme */
 
 /* ---------------------------------------------------------------------- */
 /* Settings resolution                                                    */
@@ -55,6 +56,7 @@ caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
     /* sane defaults if xfconf isn't available or nothing was saved yet */
     settings->mode = CAFFEINE_LOCK_CYCLE_NEVER;
     settings->custom_minutes = 60;
+    settings->icon_theme = CAFFEINE_ICON_THEME_AUTO;
 
     if (!xfconf_init (NULL))
     {
@@ -73,6 +75,9 @@ caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
     settings->custom_minutes = xfconf_channel_get_uint (channel, XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN, 60);
     if (settings->custom_minutes == 0)
         settings->custom_minutes = 60;
+
+    settings->icon_theme = (CaffeineIconTheme) xfconf_channel_get_int (
+        channel, XFCONF_PROP_ICON_THEME, (gint) CAFFEINE_ICON_THEME_AUTO);
 }
 
 void
@@ -92,6 +97,7 @@ caffeine_settings_save (const CaffeineSettings *settings, const gchar *channel_n
 
     xfconf_channel_set_int (channel, XFCONF_PROP_LOCK_CYCLE_MODE, (gint) settings->mode);
     xfconf_channel_set_uint (channel, XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN, settings->custom_minutes);
+    xfconf_channel_set_int (channel, XFCONF_PROP_ICON_THEME, (gint) settings->icon_theme);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -106,7 +112,17 @@ typedef struct
     GtkWidget *radio_60;
     GtkWidget *radio_custom;
     GtkWidget *spin_custom;
+
+    GtkWidget *radio_theme_auto;
+    GtkWidget *radio_theme_light;
+    GtkWidget *radio_theme_dark;
 } PrefsWidgets;
+
+/* Shown on hover over the icon theme radios - nudges the user towards
+ * AUTO/matching their system rather than picking blind, without forcing
+ * it (custom icon sets may only have one variant anyway). */
+#define ICON_THEME_TOOLTIP_TEXT \
+    "It's recommended to pick the theme that matches your system."
 
 static void
 on_custom_radio_toggled (GtkToggleButton *radio, gpointer user_data)
@@ -176,6 +192,27 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
 
     g_signal_connect (w.radio_custom, "toggled", G_CALLBACK (on_custom_radio_toggled), &w);
 
+    /* separator + icon theme section */
+    gtk_box_pack_start (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
+
+    label = gtk_label_new ("Custom icon theme:");
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, FALSE, 0);
+
+    w.radio_theme_auto = gtk_radio_button_new_with_label (NULL, "Auto (match system theme)");
+    gtk_widget_set_tooltip_text (w.radio_theme_auto, ICON_THEME_TOOLTIP_TEXT);
+    gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_auto, FALSE, FALSE, 0);
+
+    w.radio_theme_light = gtk_radio_button_new_with_label_from_widget (
+        GTK_RADIO_BUTTON (w.radio_theme_auto), "Light");
+    gtk_widget_set_tooltip_text (w.radio_theme_light, ICON_THEME_TOOLTIP_TEXT);
+    gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_light, FALSE, FALSE, 0);
+
+    w.radio_theme_dark = gtk_radio_button_new_with_label_from_widget (
+        GTK_RADIO_BUTTON (w.radio_theme_auto), "Dark");
+    gtk_widget_set_tooltip_text (w.radio_theme_dark, ICON_THEME_TOOLTIP_TEXT);
+    gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_dark, FALSE, FALSE, 0);
+
     /* reflect current settings in the UI */
     switch (settings->mode)
     {
@@ -200,6 +237,20 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_widget_set_sensitive (w.spin_custom,
         gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_custom)));
 
+    switch (settings->icon_theme)
+    {
+        case CAFFEINE_ICON_THEME_LIGHT:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_theme_light), TRUE);
+            break;
+        case CAFFEINE_ICON_THEME_DARK:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_theme_dark), TRUE);
+            break;
+        case CAFFEINE_ICON_THEME_AUTO:
+        default:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_theme_auto), TRUE);
+            break;
+    }
+
     gtk_widget_show_all (dialog);
 
     response = gtk_dialog_run (GTK_DIALOG (dialog));
@@ -219,6 +270,13 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
 
         settings->custom_minutes =
             (guint) gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (w.spin_custom));
+
+        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_theme_light)))
+            settings->icon_theme = CAFFEINE_ICON_THEME_LIGHT;
+        else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_theme_dark)))
+            settings->icon_theme = CAFFEINE_ICON_THEME_DARK;
+        else
+            settings->icon_theme = CAFFEINE_ICON_THEME_AUTO;
 
         caffeine_settings_save (settings, channel_name);
         accepted = TRUE;

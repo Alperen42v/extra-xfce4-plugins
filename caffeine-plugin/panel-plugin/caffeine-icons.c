@@ -8,6 +8,7 @@
  */
 
 #include <gio/gio.h>
+#include <gtk/gtk.h>
 
 #include "caffeine-icons.h"
 
@@ -18,6 +19,25 @@ caffeine_icons_get_folder (void)
 {
     return g_build_filename (g_get_home_dir (), ".config",
                               "xfce4-caffeine-plugin", "icons", NULL);
+}
+
+CaffeineIconTheme
+caffeine_icons_resolve_theme (CaffeineIconTheme theme)
+{
+    GtkSettings *settings;
+    gboolean     prefer_dark = FALSE;
+
+    if (theme != CAFFEINE_ICON_THEME_AUTO)
+        return theme;
+
+    /* Same property GTK's own theme switcher sets, so this follows
+     * whatever the user's system/GTK theme is currently doing rather
+     * than trying to guess from colours or a desktop-specific API. */
+    settings = gtk_settings_get_default ();
+    if (settings != NULL)
+        g_object_get (settings, "gtk-application-prefer-dark-theme", &prefer_dark, NULL);
+
+    return prefer_dark ? CAFFEINE_ICON_THEME_DARK : CAFFEINE_ICON_THEME_LIGHT;
 }
 
 /* Loads one PNG, scaled to size x size, or NULL if it doesn't exist / fails
@@ -48,28 +68,39 @@ load_scaled_png (const gchar *path, gint size)
 }
 
 CaffeineIconSet *
-caffeine_icons_load (gint target_size)
+caffeine_icons_load (gint target_size, CaffeineIconTheme theme)
 {
-    CaffeineIconSet *icons;
-    gchar           *folder;
-    GPtrArray       *frames;
-    gint             n;
+    CaffeineIconSet   *icons;
+    gchar             *folder;
+    GPtrArray         *frames;
+    gint               n;
+    CaffeineIconTheme  resolved;
+    const gchar       *variant;
+
+    /* AUTO must already be resolved to LIGHT/DARK by the caller via
+     * caffeine_icons_resolve_theme(), but resolve again here too so this
+     * function is safe to call directly with AUTO as well. */
+    resolved = caffeine_icons_resolve_theme (theme);
+    variant = (resolved == CAFFEINE_ICON_THEME_DARK) ? "dark" : "light";
 
     icons = g_new0 (CaffeineIconSet, 1);
     folder = caffeine_icons_get_folder ();
 
-    /* OFF: single static frame */
+    /* OFF: single static frame, e.g. off-light.png / off-dark.png */
     {
-        gchar *off_path = g_build_filename (folder, "off.png", NULL);
+        gchar *off_name = g_strdup_printf ("off-%s.png", variant);
+        gchar *off_path = g_build_filename (folder, off_name, NULL);
         icons->off_frame = load_scaled_png (off_path, target_size);
+        g_free (off_name);
         g_free (off_path);
     }
 
-    /* ON: on-01.png, on-02.png, ... stop at the first gap */
+    /* ON: on-light-01.png, on-light-02.png, ... (or on-dark-*) - stop at
+     * the first gap */
     frames = g_ptr_array_new ();
     for (n = 1; n <= MAX_ON_FRAMES; n++)
     {
-        gchar     *name = g_strdup_printf ("on-%02d.png", n);
+        gchar     *name = g_strdup_printf ("on-%s-%02d.png", variant, n);
         gchar     *path = g_build_filename (folder, name, NULL);
         GdkPixbuf *frame = load_scaled_png (path, target_size);
 

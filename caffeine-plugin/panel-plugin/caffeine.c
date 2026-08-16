@@ -570,10 +570,21 @@ caffeine_configure_plugin (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
 {
     if (caffeine_show_preferences (plugin, &caffeine->settings, caffeine->xfconf_channel_name))
     {
+        GtkAllocation alloc;
+
         /* settings changed and were saved - if caffeine is currently on,
          * restart the cycle so the new interval takes effect immediately
          * instead of waiting for the next toggle */
         caffeine_lock_cycle_restart (caffeine);
+
+        /* icon theme (light/dark/auto) may have changed too - reload at
+         * the icon area's current pixel size so it takes effect right
+         * away instead of waiting for the next panel resize */
+        gtk_widget_get_allocation (caffeine->icon_area, &alloc);
+        caffeine_icon_set_free (caffeine->icons);
+        caffeine->icons = caffeine_icons_load (alloc.width, caffeine->settings.icon_theme);
+        caffeine->icon_frame_index = 0;
+        gtk_widget_queue_draw (caffeine->icon_area);
     }
 }
 
@@ -586,7 +597,7 @@ caffeine_size_changed (XfcePanelPlugin *plugin, gint size, CaffeinePlugin *caffe
     /* custom PNGs are pre-scaled to the icon area's pixel size, so a
      * panel resize means reloading them at the new size */
     caffeine_icon_set_free (caffeine->icons);
-    caffeine->icons = caffeine_icons_load (size);
+    caffeine->icons = caffeine_icons_load (size, caffeine->settings.icon_theme);
     caffeine->icon_frame_index = 0;
 
     gtk_widget_queue_draw (caffeine->icon_area);
@@ -609,7 +620,6 @@ caffeine_construct (XfcePanelPlugin *plugin)
     caffeine->animation_phase = 0.0;
     caffeine->lock_cycle_timer_id = 0;
     caffeine->icon_frame_index = 0;
-    caffeine->icons = caffeine_icons_load (24); /* matches icon_area's initial size below */
 
     /* unique xfconf channel per plugin instance, so multiple copies of the
      * plugin on the same panel (or different panels) don't clobber each
@@ -617,6 +627,11 @@ caffeine_construct (XfcePanelPlugin *plugin)
     caffeine->xfconf_channel_name =
         g_strdup_printf ("xfce4-caffeine-plugin-%d", xfce_panel_plugin_get_unique_id (plugin));
     caffeine_settings_load (&caffeine->settings, caffeine->xfconf_channel_name);
+
+    /* settings must be loaded first so the icon theme choice (incl. AUTO)
+     * is known before the first icon load; matches icon_area's initial
+     * size below */
+    caffeine->icons = caffeine_icons_load (24, caffeine->settings.icon_theme);
 
     /* button that lives in the panel */
     caffeine->button = xfce_panel_create_button ();

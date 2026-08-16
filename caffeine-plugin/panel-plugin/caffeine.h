@@ -33,10 +33,15 @@ typedef enum
     CAFFEINE_LOCK_CYCLE_CUSTOM = -1  /* use custom_minutes field instead */
 } CaffeineLockCycleMode;
 
+/* CaffeineIconTheme (AUTO/LIGHT/DARK) is declared in caffeine-icons.h,
+ * which this file includes above - kept there since it's fundamentally
+ * about which icon files get loaded, and caffeine-icons.h has no
+ * dependency on the rest of this file. */
 typedef struct
 {
     CaffeineLockCycleMode mode;
     guint                 custom_minutes; /* only meaningful when mode == CUSTOM, >= 1 */
+    CaffeineIconTheme     icon_theme;     /* which custom icon variant to load */
 } CaffeineSettings;
 
 typedef struct
