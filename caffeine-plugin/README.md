@@ -1,3 +1,4 @@
+[Türkçe README](./turkish-README.md)
 # Xfce4 Caffeine Panel Plugin
 
 A minimal Xfce panel plugin that keeps your screen from locking/sleeping.
@@ -135,8 +136,6 @@ slate: `rm -rf ~/.config/xfce4-caffeine-plugin`
 
 ## Notes / next steps
 
-- The cup and steam are drawn procedurally with Cairo as the built-in
-  fallback (no image files needed for the default look).
 - If `Inhibit` fails (e.g. no screensaver DBus service running), the
   plugin will not switch to the "on" visual state and will show an
   error tooltip instead of silently pretending it worked.

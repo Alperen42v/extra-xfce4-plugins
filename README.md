@@ -1,3 +1,4 @@
+[Türkçe README](./turkish-README.md)
 # Extra XFCE4 Plugins
 
 A project focused on creating extra plugins for XFCE4 that provide useful features and help make the desktop environment more functional, flexible, and customizable.
