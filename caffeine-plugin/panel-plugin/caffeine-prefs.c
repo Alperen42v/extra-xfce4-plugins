@@ -204,12 +204,12 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_auto, FALSE, FALSE, 0);
 
     w.radio_theme_light = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_theme_auto), "Light");
+        GTK_RADIO_BUTTON (w.radio_theme_auto), "Light system theme");
     gtk_widget_set_tooltip_text (w.radio_theme_light, ICON_THEME_TOOLTIP_TEXT);
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_light, FALSE, FALSE, 0);
 
     w.radio_theme_dark = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_theme_auto), "Dark");
+        GTK_RADIO_BUTTON (w.radio_theme_auto), "Dark system theme");
     gtk_widget_set_tooltip_text (w.radio_theme_dark, ICON_THEME_TOOLTIP_TEXT);
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_dark, FALSE, FALSE, 0);
 

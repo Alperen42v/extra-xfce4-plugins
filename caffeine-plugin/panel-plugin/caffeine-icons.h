@@ -34,23 +34,27 @@ typedef enum
  * users who never add icons.
  *
  * Layout expected under the icon folder (see caffeine_icons_get_folder()):
- *   off-light.png     - OFF state, light variant (for dark panels/themes)
- *   off-dark.png       - OFF state, dark variant (for light panels/themes)
+ *   off-light.png     - OFF state, light-coloured icon (for dark panels/themes)
+ *   off-dark.png       - OFF state, dark-coloured icon (for light panels/themes)
  *   on-light-01.png
  *   on-light-02.png
- *   ...                - ON state, light variant, played in sequence and
- *                        looped (on-light-01.png alone is fine too - it
- *                        just won't animate)
+ *   ...                - ON state, light-coloured icon, played in sequence
+ *                        and looped (on-light-01.png alone is fine too -
+ *                        it just won't animate)
  *   on-dark-01.png
  *   on-dark-02.png
- *   ...                - ON state, dark variant, same rules as above
+ *   ...                - ON state, dark-coloured icon, same rules as above
  *
  * Frame numbers must be zero-padded and consecutive starting at 01 with
  * no gaps; loading stops at the first missing number.
  *
- * Which variant (light/dark) gets loaded is controlled by the icon_theme
- * setting (CaffeineIconTheme, above): AUTO detects it from the current
- * GTK theme, LIGHT/DARK pin it regardless of the system theme.
+ * The filename describes the icon's own colour, not the system theme
+ * it's named after - a dark system theme means a dark panel background,
+ * which needs the light-coloured icon to stay visible. The icon_theme
+ * setting (CaffeineIconTheme, above) is phrased in terms of the *system*
+ * theme (dark system theme = pick the "-light" files, and vice versa);
+ * AUTO detects it from the current GTK theme, LIGHT/DARK pin it
+ * regardless of the actual system theme.
  */
 
 typedef struct

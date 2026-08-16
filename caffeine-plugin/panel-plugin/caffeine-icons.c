@@ -79,9 +79,15 @@ caffeine_icons_load (gint target_size, CaffeineIconTheme theme)
 
     /* AUTO must already be resolved to LIGHT/DARK by the caller via
      * caffeine_icons_resolve_theme(), but resolve again here too so this
-     * function is safe to call directly with AUTO as well. */
+     * function is safe to call directly with AUTO as well.
+     *
+     * Note the deliberate inversion: the filename describes the icon's
+     * own colour, not the system theme it's named after. A dark system
+     * theme means a dark panel background, which needs a light-coloured
+     * icon to stay visible - so DARK resolves to loading "-light.png",
+     * and LIGHT resolves to loading "-dark.png". */
     resolved = caffeine_icons_resolve_theme (theme);
-    variant = (resolved == CAFFEINE_ICON_THEME_DARK) ? "dark" : "light";
+    variant = (resolved == CAFFEINE_ICON_THEME_DARK) ? "light" : "dark";
 
     icons = g_new0 (CaffeineIconSet, 1);
     folder = caffeine_icons_get_folder ();
