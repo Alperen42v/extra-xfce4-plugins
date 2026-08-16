@@ -483,6 +483,78 @@ caffeine_lock_cycle_stop (CaffeinePlugin *caffeine)
 }
 
 /* ---------------------------------------------------------------------- */
+/* Self-triggered screen-off-only timer (independent of the lock cycle)   */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * Unlike the lock cycle above, this NEVER calls xflock4 - the session is
+ * never locked, the computer keeps running exactly as before, only the
+ * monitor is blanked (DPMS force off). Waking it back up is left entirely
+ * to the normal DPMS/X behaviour (any key press or mouse movement turns
+ * the monitor back on) - this plugin doesn't watch for input itself, it
+ * just fires "xset dpms force off" once per interval and lets X handle
+ * the rest. The timer keeps repeating (same G_SOURCE_CONTINUE approach as
+ * the lock cycle) for as long as the feature stays enabled and caffeine
+ * is on, so the screen turns off again after each interval regardless of
+ * how many times the user has woken it up in between.
+ */
+
+static gboolean
+on_screen_off_tick (gpointer user_data)
+{
+    CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
+    GError *error = NULL;
+
+    if (!g_spawn_command_line_async ("xset dpms force off", &error))
+    {
+        g_warning ("Caffeine: failed to turn off screen via xset: %s", error->message);
+        g_clear_error (&error);
+    }
+
+    (void) caffeine;
+
+    /* Repeats on the same interval indefinitely - X's own DPMS wake-on-
+     * input handles turning the screen back on, so this just needs to
+     * keep firing every N minutes. */
+    return G_SOURCE_CONTINUE;
+}
+
+/* (Re)starts the screen-off timer based on current settings. No-op if the
+ * feature is disabled or caffeine isn't active. Safe to call multiple
+ * times - always clears any existing timer first. */
+static void
+caffeine_screen_off_restart (CaffeinePlugin *caffeine)
+{
+    guint interval_min;
+
+    if (caffeine->screen_off_timer_id != 0)
+    {
+        g_source_remove (caffeine->screen_off_timer_id);
+        caffeine->screen_off_timer_id = 0;
+    }
+
+    if (!caffeine->active)
+        return;
+
+    interval_min = caffeine_settings_get_screen_off_interval_minutes (&caffeine->settings);
+    if (interval_min == 0)
+        return; /* disabled, or invalid custom value */
+
+    caffeine->screen_off_timer_id =
+        g_timeout_add_seconds (interval_min * 60, on_screen_off_tick, caffeine);
+}
+
+static void
+caffeine_screen_off_stop (CaffeinePlugin *caffeine)
+{
+    if (caffeine->screen_off_timer_id != 0)
+    {
+        g_source_remove (caffeine->screen_off_timer_id);
+        caffeine->screen_off_timer_id = 0;
+    }
+}
+
+/* ---------------------------------------------------------------------- */
 /* Toggle state on/off                                                    */
 /* ---------------------------------------------------------------------- */
 
@@ -508,6 +580,7 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
             g_timeout_add (ANIM_INTERVAL_MS, on_animation_tick, caffeine);
 
         caffeine_lock_cycle_restart (caffeine);
+        caffeine_screen_off_restart (caffeine);
 
         gtk_widget_set_tooltip_text (caffeine->button,
             "Caffeine: ON — screen will stay awake (click to disable)");
@@ -524,6 +597,7 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
         }
 
         caffeine_lock_cycle_stop (caffeine);
+        caffeine_screen_off_stop (caffeine);
 
         gtk_widget_set_tooltip_text (caffeine->button,
             "Caffeine: OFF — click to keep the screen awake");
@@ -550,6 +624,7 @@ caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
         g_source_remove (caffeine->animation_timer_id);
 
     caffeine_lock_cycle_stop (caffeine);
+    caffeine_screen_off_stop (caffeine);
 
     if (caffeine->active)
         caffeine_dbus_uninhibit (caffeine);
@@ -573,9 +648,10 @@ caffeine_configure_plugin (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
         GtkAllocation alloc;
 
         /* settings changed and were saved - if caffeine is currently on,
-         * restart the cycle so the new interval takes effect immediately
-         * instead of waiting for the next toggle */
+         * restart both timers so the new intervals take effect
+         * immediately instead of waiting for the next toggle */
         caffeine_lock_cycle_restart (caffeine);
+        caffeine_screen_off_restart (caffeine);
 
         /* icon theme (light/dark/auto) may have changed too - reload at
          * the icon area's current pixel size so it takes effect right
@@ -619,6 +695,7 @@ caffeine_construct (XfcePanelPlugin *plugin)
     caffeine->animation_timer_id = 0;
     caffeine->animation_phase = 0.0;
     caffeine->lock_cycle_timer_id = 0;
+    caffeine->screen_off_timer_id = 0;
     caffeine->icon_frame_index = 0;
 
     /* unique xfconf channel per plugin instance, so multiple copies of the

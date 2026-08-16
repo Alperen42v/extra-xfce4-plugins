@@ -16,6 +16,9 @@
 #define XFCONF_PROP_LOCK_CYCLE_MODE      "/lock-cycle-mode"     /* int, CaffeineLockCycleMode */
 #define XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN "/lock-cycle-custom-minutes" /* uint, >= 1 */
 #define XFCONF_PROP_ICON_THEME           "/icon-theme"          /* int, CaffeineIconTheme */
+#define XFCONF_PROP_SCREEN_OFF_ENABLED   "/screen-off-enabled"  /* bool */
+#define XFCONF_PROP_SCREEN_OFF_MODE      "/screen-off-mode"     /* int, CaffeineScreenOffMode */
+#define XFCONF_PROP_SCREEN_OFF_CUSTOM_MIN "/screen-off-custom-minutes" /* uint, >= 1 */
 
 /* ---------------------------------------------------------------------- */
 /* Settings resolution                                                    */
@@ -43,6 +46,29 @@ caffeine_settings_get_interval_minutes (const CaffeineSettings *settings)
     }
 }
 
+guint
+caffeine_settings_get_screen_off_interval_minutes (const CaffeineSettings *settings)
+{
+    if (settings == NULL || !settings->screen_off_enabled)
+        return 0;
+
+    switch (settings->screen_off_mode)
+    {
+        case CAFFEINE_SCREEN_OFF_CUSTOM:
+            return settings->screen_off_custom_minutes > 0 ? settings->screen_off_custom_minutes : 0;
+
+        case CAFFEINE_SCREEN_OFF_5MIN:
+        case CAFFEINE_SCREEN_OFF_10MIN:
+        case CAFFEINE_SCREEN_OFF_15MIN:
+        case CAFFEINE_SCREEN_OFF_30MIN:
+            return (guint) settings->screen_off_mode;
+
+        case CAFFEINE_SCREEN_OFF_NEVER:
+        default:
+            return 0;
+    }
+}
+
 /* ---------------------------------------------------------------------- */
 /* xfconf load/save                                                       */
 /* ---------------------------------------------------------------------- */
@@ -57,6 +83,9 @@ caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
     settings->mode = CAFFEINE_LOCK_CYCLE_NEVER;
     settings->custom_minutes = 60;
     settings->icon_theme = CAFFEINE_ICON_THEME_AUTO;
+    settings->screen_off_enabled = FALSE;
+    settings->screen_off_mode = CAFFEINE_SCREEN_OFF_15MIN;
+    settings->screen_off_custom_minutes = 15;
 
     if (!xfconf_init (NULL))
     {
@@ -78,6 +107,16 @@ caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
 
     settings->icon_theme = (CaffeineIconTheme) xfconf_channel_get_int (
         channel, XFCONF_PROP_ICON_THEME, (gint) CAFFEINE_ICON_THEME_AUTO);
+
+    settings->screen_off_enabled = xfconf_channel_get_bool (channel, XFCONF_PROP_SCREEN_OFF_ENABLED, FALSE);
+
+    settings->screen_off_mode = (CaffeineScreenOffMode) xfconf_channel_get_int (
+        channel, XFCONF_PROP_SCREEN_OFF_MODE, (gint) CAFFEINE_SCREEN_OFF_15MIN);
+
+    settings->screen_off_custom_minutes =
+        xfconf_channel_get_uint (channel, XFCONF_PROP_SCREEN_OFF_CUSTOM_MIN, 15);
+    if (settings->screen_off_custom_minutes == 0)
+        settings->screen_off_custom_minutes = 15;
 }
 
 void
@@ -98,6 +137,9 @@ caffeine_settings_save (const CaffeineSettings *settings, const gchar *channel_n
     xfconf_channel_set_int (channel, XFCONF_PROP_LOCK_CYCLE_MODE, (gint) settings->mode);
     xfconf_channel_set_uint (channel, XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN, settings->custom_minutes);
     xfconf_channel_set_int (channel, XFCONF_PROP_ICON_THEME, (gint) settings->icon_theme);
+    xfconf_channel_set_bool (channel, XFCONF_PROP_SCREEN_OFF_ENABLED, settings->screen_off_enabled);
+    xfconf_channel_set_int (channel, XFCONF_PROP_SCREEN_OFF_MODE, (gint) settings->screen_off_mode);
+    xfconf_channel_set_uint (channel, XFCONF_PROP_SCREEN_OFF_CUSTOM_MIN, settings->screen_off_custom_minutes);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -116,6 +158,15 @@ typedef struct
     GtkWidget *radio_theme_auto;
     GtkWidget *radio_theme_light;
     GtkWidget *radio_theme_dark;
+
+    GtkWidget *check_screen_off_enabled;
+    GtkWidget *screen_off_box;        /* container holding the radios below, sensitivity-linked to the checkbox */
+    GtkWidget *radio_screen_off_5;
+    GtkWidget *radio_screen_off_10;
+    GtkWidget *radio_screen_off_15;
+    GtkWidget *radio_screen_off_30;
+    GtkWidget *radio_screen_off_custom;
+    GtkWidget *spin_screen_off_custom;
 } PrefsWidgets;
 
 /* Shown on hover over the icon theme radios - nudges the user towards
@@ -129,6 +180,25 @@ on_custom_radio_toggled (GtkToggleButton *radio, gpointer user_data)
 {
     PrefsWidgets *w = (PrefsWidgets *) user_data;
     gtk_widget_set_sensitive (w->spin_custom, gtk_toggle_button_get_active (radio));
+}
+
+static void
+on_screen_off_custom_radio_toggled (GtkToggleButton *radio, gpointer user_data)
+{
+    PrefsWidgets *w = (PrefsWidgets *) user_data;
+    gtk_widget_set_sensitive (w->spin_screen_off_custom, gtk_toggle_button_get_active (radio));
+}
+
+static void
+on_screen_off_enabled_toggled (GtkToggleButton *check, gpointer user_data)
+{
+    PrefsWidgets *w = (PrefsWidgets *) user_data;
+    gboolean      enabled = gtk_toggle_button_get_active (check);
+
+    /* the whole radio-button group is only meaningful once the feature
+     * is switched on, so grey it out entirely rather than leaving picks
+     * the user can interact with but that don't do anything yet */
+    gtk_widget_set_sensitive (w->screen_off_box, enabled);
 }
 
 gboolean
@@ -213,6 +283,51 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_widget_set_tooltip_text (w.radio_theme_dark, ICON_THEME_TOOLTIP_TEXT);
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_dark, FALSE, FALSE, 0);
 
+    /* separator + screen-off-only section */
+    gtk_box_pack_start (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
+
+    w.check_screen_off_enabled = gtk_check_button_new_with_label (
+        "Turn off screen after (does not lock the session)");
+    gtk_box_pack_start (GTK_BOX (vbox), w.check_screen_off_enabled, FALSE, FALSE, 0);
+
+    w.screen_off_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_margin_start (w.screen_off_box, 24);
+    gtk_box_pack_start (GTK_BOX (vbox), w.screen_off_box, FALSE, FALSE, 0);
+
+    w.radio_screen_off_5 = gtk_radio_button_new_with_label (NULL, "5 minutes");
+    gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_5, FALSE, FALSE, 0);
+
+    w.radio_screen_off_10 = gtk_radio_button_new_with_label_from_widget (
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), "10 minutes");
+    gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_10, FALSE, FALSE, 0);
+
+    w.radio_screen_off_15 = gtk_radio_button_new_with_label_from_widget (
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), "15 minutes");
+    gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_15, FALSE, FALSE, 0);
+
+    w.radio_screen_off_30 = gtk_radio_button_new_with_label_from_widget (
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), "30 minutes");
+    gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_30, FALSE, FALSE, 0);
+
+    w.radio_screen_off_custom = gtk_radio_button_new_with_label_from_widget (
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), "Custom:");
+    gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_custom, FALSE, FALSE, 0);
+
+    {
+        GtkWidget *screen_off_custom_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_box_pack_start (GTK_BOX (w.screen_off_box), screen_off_custom_hbox, FALSE, FALSE, 0);
+        gtk_widget_set_margin_start (screen_off_custom_hbox, 24);
+
+        w.spin_screen_off_custom = gtk_spin_button_new_with_range (1, 999, 1);
+        gtk_box_pack_start (GTK_BOX (screen_off_custom_hbox), w.spin_screen_off_custom, FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (screen_off_custom_hbox), gtk_label_new ("minutes"), FALSE, FALSE, 0);
+    }
+
+    g_signal_connect (w.radio_screen_off_custom, "toggled",
+                       G_CALLBACK (on_screen_off_custom_radio_toggled), &w);
+    g_signal_connect (w.check_screen_off_enabled, "toggled",
+                       G_CALLBACK (on_screen_off_enabled_toggled), &w);
+
     /* reflect current settings in the UI */
     switch (settings->mode)
     {
@@ -251,7 +366,37 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
             break;
     }
 
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.check_screen_off_enabled),
+                                   settings->screen_off_enabled);
+
+    switch (settings->screen_off_mode)
+    {
+        case CAFFEINE_SCREEN_OFF_5MIN:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_5), TRUE);
+            break;
+        case CAFFEINE_SCREEN_OFF_10MIN:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_10), TRUE);
+            break;
+        case CAFFEINE_SCREEN_OFF_30MIN:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_30), TRUE);
+            break;
+        case CAFFEINE_SCREEN_OFF_CUSTOM:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_custom), TRUE);
+            break;
+        case CAFFEINE_SCREEN_OFF_15MIN:
+        default:
+            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_15), TRUE);
+            break;
+    }
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (w.spin_screen_off_custom), settings->screen_off_custom_minutes);
+    gtk_widget_set_sensitive (w.spin_screen_off_custom,
+        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_custom)));
+
     gtk_widget_show_all (dialog);
+
+    /* set after show_all(), since show_all() only affects visibility and
+     * would otherwise leave this greyed-out box looking clickable */
+    gtk_widget_set_sensitive (w.screen_off_box, settings->screen_off_enabled);
 
     response = gtk_dialog_run (GTK_DIALOG (dialog));
 
@@ -277,6 +422,23 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
             settings->icon_theme = CAFFEINE_ICON_THEME_DARK;
         else
             settings->icon_theme = CAFFEINE_ICON_THEME_AUTO;
+
+        settings->screen_off_enabled =
+            gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.check_screen_off_enabled));
+
+        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_5)))
+            settings->screen_off_mode = CAFFEINE_SCREEN_OFF_5MIN;
+        else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_10)))
+            settings->screen_off_mode = CAFFEINE_SCREEN_OFF_10MIN;
+        else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_30)))
+            settings->screen_off_mode = CAFFEINE_SCREEN_OFF_30MIN;
+        else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_screen_off_custom)))
+            settings->screen_off_mode = CAFFEINE_SCREEN_OFF_CUSTOM;
+        else
+            settings->screen_off_mode = CAFFEINE_SCREEN_OFF_15MIN;
+
+        settings->screen_off_custom_minutes =
+            (guint) gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (w.spin_screen_off_custom));
 
         caffeine_settings_save (settings, channel_name);
         accepted = TRUE;

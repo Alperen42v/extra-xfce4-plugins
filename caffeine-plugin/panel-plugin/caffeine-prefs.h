@@ -18,6 +18,11 @@ G_BEGIN_DECLS
  * Returns 0 if the lock cycle is disabled (mode == NEVER). */
 guint caffeine_settings_get_interval_minutes (const CaffeineSettings *settings);
 
+/* Resolves the effective screen-off interval in minutes. Returns 0 if
+ * the screen-off timer is disabled (screen_off_enabled == FALSE) or the
+ * mode/custom value is invalid. */
+guint caffeine_settings_get_screen_off_interval_minutes (const CaffeineSettings *settings);
+
 /* Loads settings from xfconf (falls back to defaults - lock cycle off - if
  * xfconf is unavailable or nothing has been saved yet). channel_name should
  * be unique per plugin instance, e.g. "xfce4-caffeine-plugin-<panel-id>". */

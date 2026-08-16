@@ -37,11 +37,34 @@ typedef enum
  * which this file includes above - kept there since it's fundamentally
  * about which icon files get loaded, and caffeine-icons.h has no
  * dependency on the rest of this file. */
+/*
+ * Screen-off-only timer setting - independent of, and can run alongside,
+ * the lock cycle above. While Caffeine is ON, this can turn the monitor
+ * off (DPMS force off) on a repeating schedule of its own, WITHOUT ever
+ * locking the session (no xflock4 call at all) - the computer keeps
+ * running, only the display goes dark. Any user input wakes the monitor
+ * again through the normal DPMS/X mechanism, and the plugin's own timer
+ * simply restarts for the next cycle.
+ */
+typedef enum
+{
+    CAFFEINE_SCREEN_OFF_NEVER = 0,   /* disabled - screen only blanks via the lock cycle, if that's on */
+    CAFFEINE_SCREEN_OFF_5MIN = 5,
+    CAFFEINE_SCREEN_OFF_10MIN = 10,
+    CAFFEINE_SCREEN_OFF_15MIN = 15,
+    CAFFEINE_SCREEN_OFF_30MIN = 30,
+    CAFFEINE_SCREEN_OFF_CUSTOM = -1  /* use screen_off_custom_minutes field instead */
+} CaffeineScreenOffMode;
+
 typedef struct
 {
     CaffeineLockCycleMode mode;
     guint                 custom_minutes; /* only meaningful when mode == CUSTOM, >= 1 */
     CaffeineIconTheme     icon_theme;     /* which custom icon variant to load */
+
+    gboolean              screen_off_enabled;
+    CaffeineScreenOffMode screen_off_mode;
+    guint                 screen_off_custom_minutes; /* only meaningful when screen_off_mode == CUSTOM, >= 1 */
 } CaffeineSettings;
 
 typedef struct
@@ -79,6 +102,10 @@ typedef struct
     CaffeineSettings settings;
     gchar     *xfconf_channel_name; /* unique per plugin instance, for xfconf */
     guint      lock_cycle_timer_id; /* 0 = no cycle running (mode NEVER or caffeine off) */
+
+    /* preferences: screen-off-only timer, independent of the lock cycle -
+     * see CaffeineScreenOffMode in this file for what it does */
+    guint      screen_off_timer_id; /* 0 = no timer running (disabled or caffeine off) */
 
 } CaffeinePlugin;
 
