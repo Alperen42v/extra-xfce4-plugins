@@ -1,0 +1,19 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.out
+#secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Build
+build/
+dist/
+target/
+out/
