@@ -1,14 +1,8 @@
 /*
  * Caffeine Plugin for the Xfce Panel
  *
- * Left-click toggles "keep awake" mode.
- *  - OFF: plain white/outline coffee cup icon.
- *  - ON:  yellow/filled coffee cup with an animated 2D steam wisp.
- *
- * Keeping the screen awake is done through the standard
- * org.freedesktop.ScreenSaver DBus Inhibit/UnInhibit interface, which is
- * honoured by most modern Linux desktops (not just Xfce), so this works
- * for anyone regardless of their screensaver/power-manager setup.
+ * Left-click toggles "keep awake" mode using the standard
+ * org.freedesktop.ScreenSaver DBus Inhibit/UnInhibit interface.
  */
 
 #include <math.h>
@@ -20,34 +14,19 @@
 #include "caffeine-icons.h"
 
 #define BORDER 4
-#define ANIM_INTERVAL_MS 60   /* ~16 fps, cheap on CPU */
-#define LOCK_TO_BLANK_DELAY_SEC 7   /* gap between xflock4 and forcing DPMS off,
-                                     * mirrors the way xfce4-power-manager gives
-                                     * the lock screen a moment to appear first */
+#define ANIM_INTERVAL_MS 60   /* ~16 fps */
+#define LOCK_TO_BLANK_DELAY_SEC 7   /* gap between xflock4 and forcing DPMS off */
 
 /* ---------------------------------------------------------------------- */
 /* DBus screensaver inhibit helpers                                       */
 /* ---------------------------------------------------------------------- */
 
 /*
- * Different desktops expose the (practically identical) Inhibit/UnInhibit
- * interface under different bus names, object paths and interface names -
- * they do NOT always line up the way org.freedesktop.ScreenSaver's do
- * (bus name == interface name == "/" + bus name with dots as slashes).
- * xfce4-power-manager in particular exposes its inhibit interface at
- * /org/freedesktop/PowerManagement/Inhibit under the interface
- * org.freedesktop.PowerManagement.Inhibit, NOT at the "mirrored" path/
- * interface you'd get by naively transforming the bus name. Getting this
- * wrong means Inhibit() lands on an object/interface that doesn't have
- * the method, which is exactly the "UnknownMethod" / "no such interface"
- * errors this plugin used to log.
- *
- * There are two separate concerns on Xfce: the screensaver/lock-screen,
- * and the power manager's DPMS (monitor sleep). Inhibiting only one of
- * them is not enough - Xfce can still blank the screen via the power
- * manager even if the screensaver itself is inhibited. So we inhibit
- * both, independently, and remember which target worked for each so
- * UnInhibit targets the exact same service/path/interface.
+ * Different desktops expose Inhibit/UnInhibit under different bus
+ * names/paths/interfaces (xfce4-power-manager in particular does not
+ * mirror its bus name into its object path). We inhibit both the
+ * screensaver and the power manager's DPMS independently, and remember
+ * which target worked for each so UnInhibit hits the same one.
  */
 typedef struct
 {
@@ -57,27 +36,19 @@ typedef struct
 } InhibitTarget;
 
 static const InhibitTarget screensaver_targets[] = {
-    /* GNOME, KDE, generic freedesktop screensavers */
     { "org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver" },
-    /* xfce4-screensaver, when installed/running instead of xfce4-power-manager's own lock handling */
     { "org.xfce.ScreenSaver", "/org/xfce/ScreenSaver", "org.xfce.ScreenSaver" },
-    /* older GNOME */
     { "org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver" },
     { NULL, NULL, NULL }
 };
 
 static const InhibitTarget power_targets[] = {
-    /* generic freedesktop power mgmt inhibit, as implemented by xfce4-power-manager:
-     * bus name is org.freedesktop.PowerManagement, but the inhibit object/interface
-     * live one level down, at .../PowerManagement/Inhibit */
     { "org.freedesktop.PowerManagement", "/org/freedesktop/PowerManagement/Inhibit", "org.freedesktop.PowerManagement.Inhibit" },
     { NULL, NULL, NULL }
 };
 
-/* Tries each target in turn, calling Inhibit(app, reason) -> cookie.
- * On success, *out_cookie is set, *out_backend/out_path/out_iface are set
- * to newly-allocated copies of the target that worked, and TRUE is
- * returned. The out_* strings must be freed with g_free() by the caller. */
+/* Tries each target in turn until Inhibit() succeeds; out_* are set to
+ * newly-allocated copies of the target that worked (caller frees). */
 static gboolean
 try_inhibit (GDBusConnection *conn, const InhibitTarget *targets,
              guint *out_cookie, gchar **out_backend,
@@ -153,12 +124,8 @@ try_uninhibit (GDBusConnection *conn, guint cookie,
     }
 }
 
-/*
- * Inhibits both the screensaver and DPMS/power-management sleep.
- * Returns TRUE if at least one of the two succeeded (so caffeine still
- * "does something" even on desktops that only implement one interface),
- * but logs which ones failed.
- */
+/* Returns TRUE if at least one of screensaver/power-management inhibit
+ * succeeded; logs a warning for whichever one failed. */
 static gboolean
 caffeine_dbus_inhibit (CaffeinePlugin *caffeine)
 {
@@ -237,13 +204,12 @@ draw_cup (cairo_t *cr, gint w, gint h, gboolean active)
     cup_top    = h * 0.45;
     cup_bottom = h * 0.85;
 
-    /* colours: white/outline when off, warm yellow when on */
     if (active)
         cairo_set_source_rgb (cr, 0.98, 0.75, 0.15); /* amber/yellow */
     else
         cairo_set_source_rgb (cr, 0.95, 0.95, 0.95); /* near-white */
 
-    /* cup body (rounded-bottom trapezoid) */
+    /* cup body */
     cairo_new_path (cr);
     cairo_move_to (cr, cup_left, cup_top);
     cairo_line_to (cr, cup_right, cup_top);
@@ -286,10 +252,8 @@ draw_cup (cairo_t *cr, gint w, gint h, gboolean active)
     cairo_stroke (cr);
 }
 
-/*
- * Simple wavy steam wisp: a few sine-perturbed bezier-ish strokes that
- * drift upward and fade based on the animation phase.
- */
+/* Wavy steam wisp: sine-perturbed strokes drifting upward and fading
+ * based on the animation phase. */
 static void
 draw_steam (cairo_t *cr, gint w, gint h, gdouble phase)
 {
@@ -338,10 +302,7 @@ on_icon_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data)
     gint w = alloc.width;
     gint h = alloc.height;
 
-    /* Prefer the user's custom icons when present. Falls back to the
-     * built-in Cairo cup+steam per-frame (off.png missing, or on-*.png
-     * missing while active) so a half-provided icon set never leaves a
-     * blank panel button. */
+    /* prefer custom icons; fall back to the Cairo-drawn cup if missing */
     if (caffeine->icons != NULL)
     {
         if (caffeine->active && caffeine->icons->on_frame_count > 0)
@@ -359,7 +320,6 @@ on_icon_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data)
         return FALSE;
     }
 
-    /* Cairo-drawn fallback (original built-in look) */
     cairo_save (cr);
     draw_cup (cr, w, h, caffeine->active);
     cairo_restore (cr);
@@ -383,28 +343,21 @@ on_animation_tick (gpointer user_data)
     if (caffeine->animation_phase > 1.0)
         caffeine->animation_phase -= 1.0;
 
-    /* also advances the custom on-NN.png frame, when present; harmless
-     * no-op (just wraps a counter) when there are no custom ON frames */
     if (caffeine->icons != NULL && caffeine->icons->on_frame_count > 0)
         caffeine->icon_frame_index = (caffeine->icon_frame_index + 1) % caffeine->icons->on_frame_count;
 
     gtk_widget_queue_draw (caffeine->icon_area);
 
-    return G_SOURCE_CONTINUE; /* keep ticking while active */
+    return G_SOURCE_CONTINUE;
 }
 
 /* ---------------------------------------------------------------------- */
 /* Self-triggered lock+blank cycle (independent of caffeine on/off state) */
 /* ---------------------------------------------------------------------- */
 
-/*
- * NOTE: this cycle does NOT turn caffeine off and does NOT touch the
- * inhibit cookies above. It mimics what xfce4-power-manager would do on
- * user inactivity (lock the screen, then blank the monitor a few seconds
- * later) but triggers it itself on a fixed schedule while caffeine stays
- * inhibited/on throughout. See caffeine-prefs.h for the settings this
- * reads.
- */
+/* Mimics xfce4-power-manager's inactivity behaviour (lock, then blank a
+ * few seconds later) but on a fixed schedule while caffeine stays on;
+ * does not touch the inhibit cookies above. */
 
 static gboolean
 on_blank_after_lock (gpointer user_data)
@@ -412,9 +365,6 @@ on_blank_after_lock (gpointer user_data)
     CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
     GError *error = NULL;
 
-    /* Same mechanism xfce4-power-manager itself uses to blank the display
-     * (DPMS force off); xset is a tiny, near-universally-present utility
-     * so no extra dependency is introduced for this. */
     if (!g_spawn_command_line_async ("xset dpms force off", &error))
     {
         g_warning ("Caffeine: failed to blank monitor via xset: %s", error->message);
@@ -437,19 +387,13 @@ on_lock_cycle_tick (gpointer user_data)
         g_clear_error (&error);
     }
 
-    /* Give the lock screen a moment to actually appear before blanking
-     * the monitor, same as xfce4-power-manager's own lock-then-blank gap. */
     g_timeout_add_seconds (LOCK_TO_BLANK_DELAY_SEC, on_blank_after_lock, caffeine);
 
-    /* G_SOURCE_CONTINUE would keep firing on the *same* interval this timer
-     * was created with, which is exactly what we want here: the cycle just
-     * repeats every N minutes for as long as caffeine stays on. */
     return G_SOURCE_CONTINUE;
 }
 
-/* (Re)starts the lock cycle timer based on current settings. No-op if the
- * mode is NEVER or caffeine isn't active. Safe to call multiple times -
- * always clears any existing timer first. */
+/* (Re)starts the lock cycle timer from current settings. No-op if mode
+ * is NEVER or caffeine isn't active; always clears any existing timer. */
 static void
 caffeine_lock_cycle_restart (CaffeinePlugin *caffeine)
 {
@@ -466,7 +410,7 @@ caffeine_lock_cycle_restart (CaffeinePlugin *caffeine)
 
     interval_min = caffeine_settings_get_interval_minutes (&caffeine->settings);
     if (interval_min == 0)
-        return; /* NEVER, or invalid custom value - pure indefinite inhibit */
+        return; /* NEVER, or invalid custom value */
 
     caffeine->lock_cycle_timer_id =
         g_timeout_add_seconds (interval_min * 60, on_lock_cycle_tick, caffeine);
@@ -486,18 +430,8 @@ caffeine_lock_cycle_stop (CaffeinePlugin *caffeine)
 /* Self-triggered screen-off-only timer (independent of the lock cycle)   */
 /* ---------------------------------------------------------------------- */
 
-/*
- * Unlike the lock cycle above, this NEVER calls xflock4 - the session is
- * never locked, the computer keeps running exactly as before, only the
- * monitor is blanked (DPMS force off). Waking it back up is left entirely
- * to the normal DPMS/X behaviour (any key press or mouse movement turns
- * the monitor back on) - this plugin doesn't watch for input itself, it
- * just fires "xset dpms force off" once per interval and lets X handle
- * the rest. The timer keeps repeating (same G_SOURCE_CONTINUE approach as
- * the lock cycle) for as long as the feature stays enabled and caffeine
- * is on, so the screen turns off again after each interval regardless of
- * how many times the user has woken it up in between.
- */
+/* Unlike the lock cycle, this never calls xflock4 - only DPMS force off.
+ * Waking the monitor is left to normal DPMS/X input handling. */
 
 static gboolean
 on_screen_off_tick (gpointer user_data)
@@ -513,15 +447,11 @@ on_screen_off_tick (gpointer user_data)
 
     (void) caffeine;
 
-    /* Repeats on the same interval indefinitely - X's own DPMS wake-on-
-     * input handles turning the screen back on, so this just needs to
-     * keep firing every N minutes. */
     return G_SOURCE_CONTINUE;
 }
 
-/* (Re)starts the screen-off timer based on current settings. No-op if the
- * feature is disabled or caffeine isn't active. Safe to call multiple
- * times - always clears any existing timer first. */
+/* (Re)starts the screen-off timer from current settings. No-op if
+ * disabled or caffeine isn't active; always clears any existing timer. */
 static void
 caffeine_screen_off_restart (CaffeinePlugin *caffeine)
 {
@@ -568,7 +498,6 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
     {
         if (!caffeine_dbus_inhibit (caffeine))
         {
-            /* Inhibit failed: don't flip the visual state, warn via tooltip */
             gtk_widget_set_tooltip_text (caffeine->button,
                 "Caffeine: failed to inhibit screensaver/power manager (DBus error)");
             return;
@@ -648,22 +577,13 @@ caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
     g_free (caffeine);
 }
 
-/*
- * Reloads the custom icon set at the icon area's current pixel size.
- * Used when the system theme changes live (AUTO mode), when the user
- * picks a different theme in Preferences, and by caffeine_size_changed()
- * below on every panel resize - same operation either way, just
- * triggered from different places.
- */
+/* Reloads the custom icon set at the icon area's current pixel size.
+ * Used on live theme changes, preference changes, and panel resizes. */
 static void
 caffeine_reload_icons (CaffeinePlugin *caffeine)
 {
-    /* Uses the last size the panel actually told us about (via
-     * size-changed at construct time, kept up to date after) rather than
-     * gtk_widget_get_allocation() - allocation can still read 0 very
-     * early in the widget's life, before GTK has run a full size-allocate
-     * pass on it, which previously caused icon loads to silently no-op
-     * and, worse, leave caffeine->icons pointing at nothing to draw. */
+    /* uses the last size reported via size-changed, not
+     * gtk_widget_get_allocation() which can still read 0 very early */
     if (caffeine->icon_pixel_size <= 0)
         return;
 
@@ -679,23 +599,15 @@ caffeine_size_changed (XfcePanelPlugin *plugin, gint size, CaffeinePlugin *caffe
     gtk_widget_set_size_request (GTK_WIDGET (caffeine->button), size, size);
     gtk_widget_set_size_request (caffeine->icon_area, size, size);
 
-    /* custom PNGs are pre-scaled to the icon area's pixel size, so a
-     * panel resize means reloading them at the new size */
     caffeine->icon_pixel_size = size;
     caffeine_reload_icons (caffeine);
 
     return TRUE;
 }
 
-/*
- * Fires whenever GTK's own "prefer dark theme" setting changes - covers
- * both the case where xfsettingsd hadn't finished pushing the real
- * XSETTINGS values yet at construct time (the icon set loaded initially
- * can be wrong purely due to that startup race) and the case where the
- * user switches their system theme live while caffeine is running. Only
- * acts when the user has AUTO selected - in LIGHT/DARK mode the choice
- * is pinned regardless of what the system theme does.
- */
+/* Fires when GTK's "prefer dark theme" setting changes - covers both a
+ * startup XSETTINGS race and the user switching themes live. Only acts
+ * in AUTO mode; LIGHT/DARK stay pinned. */
 static void
 on_gtk_theme_notify (GObject *settings, GParamSpec *pspec, gpointer user_data)
 {
@@ -713,15 +625,9 @@ caffeine_configure_plugin (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
 {
     if (caffeine_show_preferences (plugin, &caffeine->settings, caffeine->xfconf_channel_name))
     {
-        /* settings changed and were saved - if caffeine is currently on,
-         * restart both timers so the new intervals take effect
-         * immediately instead of waiting for the next toggle */
+        /* restart timers immediately so new intervals take effect */
         caffeine_lock_cycle_restart (caffeine);
         caffeine_screen_off_restart (caffeine);
-
-        /* icon theme (light/dark/auto) may have changed too - reload at
-         * the icon area's current pixel size so it takes effect right
-         * away instead of waiting for the next panel resize */
         caffeine_reload_icons (caffeine);
     }
 }
@@ -744,38 +650,24 @@ caffeine_construct (XfcePanelPlugin *plugin)
     caffeine->theme_notify_handler_id = 0;
     caffeine->icon_frame_index = 0;
 
-    /* unique xfconf channel per plugin instance, so multiple copies of the
-     * plugin on the same panel (or different panels) don't clobber each
-     * other's settings */
+    /* unique per instance so multiple panel copies don't clobber settings */
     caffeine->xfconf_channel_name =
         g_strdup_printf ("xfce4-caffeine-plugin-%d", xfce_panel_plugin_get_unique_id (plugin));
 
-    /* settings must be loaded first so the icon theme choice (incl. AUTO)
-     * is known once icons get loaded below. */
     caffeine_settings_load (&caffeine->settings, caffeine->xfconf_channel_name);
 
-    /* xfce_panel_plugin_get_size() gives the real, current panel icon
-     * size right away - no need to wait for the first size-changed
-     * signal (which some panel configurations delay or skip entirely,
-     * previously leaving caffeine->icons NULL - and therefore the icon
-     * area blank - until a resize happened to come along). Falls back to
-     * 24 if the panel doesn't have a sensible size yet either, matching
-     * the icon_area's own initial size request below. */
+    /* real panel size right away, so icons don't stay blank waiting for
+     * the first size-changed signal (some panels delay/skip it) */
     caffeine->icon_pixel_size = xfce_panel_plugin_get_size (plugin);
     if (caffeine->icon_pixel_size <= 0)
         caffeine->icon_pixel_size = 24;
 
-    /* Icons are loaded further down, after theme_notify_handler_id is
-     * connected - see the comment there for why construct-time loading
-     * needs care around the system theme not being settled yet. */
     caffeine->icons = NULL;
 
-    /* button that lives in the panel */
     caffeine->button = xfce_panel_create_button ();
     gtk_button_set_relief (GTK_BUTTON (caffeine->button), GTK_RELIEF_NONE);
     gtk_widget_set_focus_on_click (caffeine->button, FALSE);
 
-    /* drawing area for the cup icon, packed inside the button */
     caffeine->icon_area = gtk_drawing_area_new ();
     gtk_widget_set_size_request (caffeine->icon_area, caffeine->icon_pixel_size, caffeine->icon_pixel_size);
     gtk_container_add (GTK_CONTAINER (caffeine->button), caffeine->icon_area);
@@ -793,18 +685,14 @@ caffeine_construct (XfcePanelPlugin *plugin)
     gtk_container_add (GTK_CONTAINER (plugin), caffeine->button);
     xfce_panel_plugin_add_action_widget (plugin, caffeine->button);
 
-    /* adds "Properties..." to the panel's right-click context menu for
-     * this plugin, wired to open our preferences dialog */
     xfce_panel_plugin_menu_show_configure (plugin);
     g_signal_connect (plugin, "configure-plugin", G_CALLBACK (caffeine_configure_plugin), caffeine);
 
     g_signal_connect (plugin, "free-data", G_CALLBACK (caffeine_free), caffeine);
     g_signal_connect (plugin, "size-changed", G_CALLBACK (caffeine_size_changed), caffeine);
 
-    /* keeps AUTO icon theme mode in sync with the live system theme -
-     * also the fix for the startup race described above, since this
-     * fires (with the now-correct value) once XSETTINGS actually lands,
-     * even if that's after our first icon load */
+    /* keeps AUTO icon theme in sync with live system theme changes, and
+     * corrects the initial load if XSETTINGS hadn't landed yet */
     {
         GtkSettings *gtk_settings = gtk_settings_get_default ();
         if (gtk_settings != NULL)
@@ -813,10 +701,6 @@ caffeine_construct (XfcePanelPlugin *plugin)
                                    G_CALLBACK (on_gtk_theme_notify), caffeine);
     }
 
-    /* First icon load. If AUTO is selected and XSETTINGS hasn't actually
-     * propagated to this process yet, this can still pick the wrong
-     * variant - but on_gtk_theme_notify() above will fire and correct it
-     * as soon as the real value lands, so it never stays wrong. */
     caffeine_reload_icons (caffeine);
 }
 

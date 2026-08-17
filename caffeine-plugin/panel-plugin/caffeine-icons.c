@@ -1,10 +1,6 @@
 /*
- * Custom icon loading for the Caffeine plugin.
- *
- * Kept separate from caffeine.c on purpose, same reasoning as
- * caffeine-prefs.c: this is a self-contained concern (find files on
- * disk, load/scale them, hand back pixbufs) that shouldn't clutter the
- * inhibit/drawing/lifecycle code.
+ * Custom icon loading for the Caffeine plugin: finds icon files on
+ * disk, loads/scales them, hands back pixbufs.
  */
 
 #include <gio/gio.h>
@@ -30,9 +26,7 @@ caffeine_icons_resolve_theme (CaffeineIconTheme theme)
     if (theme != CAFFEINE_ICON_THEME_AUTO)
         return theme;
 
-    /* Same property GTK's own theme switcher sets, so this follows
-     * whatever the user's system/GTK theme is currently doing rather
-     * than trying to guess from colours or a desktop-specific API. */
+    /* same property GTK's own theme switcher sets */
     settings = gtk_settings_get_default ();
     if (settings != NULL)
         g_object_get (settings, "gtk-application-prefer-dark-theme", &prefer_dark, NULL);
@@ -40,9 +34,8 @@ caffeine_icons_resolve_theme (CaffeineIconTheme theme)
     return prefer_dark ? CAFFEINE_ICON_THEME_DARK : CAFFEINE_ICON_THEME_LIGHT;
 }
 
-/* Loads one PNG, scaled to size x size, or NULL if it doesn't exist / fails
- * to load (logged at debug level only - a missing custom icon is a normal,
- * expected case, not a warning-worthy error). */
+/* Loads one PNG scaled to size x size, or NULL if missing/unloadable
+ * (logged at debug level only - a missing icon is expected, not an error). */
 static GdkPixbuf *
 load_scaled_png (const gchar *path, gint size)
 {
@@ -53,8 +46,7 @@ load_scaled_png (const gchar *path, gint size)
         return NULL;
 
     pixbuf = gdk_pixbuf_new_from_file_at_scale (path, size, size,
-                                                 FALSE /* don't preserve aspect ratio -
-                                                          force exact panel size */,
+                                                 FALSE /* force exact panel size */,
                                                  &error);
     if (pixbuf == NULL)
     {
@@ -77,15 +69,9 @@ caffeine_icons_load (gint target_size, CaffeineIconTheme theme)
     CaffeineIconTheme  resolved;
     const gchar       *variant;
 
-    /* AUTO must already be resolved to LIGHT/DARK by the caller via
-     * caffeine_icons_resolve_theme(), but resolve again here too so this
-     * function is safe to call directly with AUTO as well.
-     *
-     * Note the deliberate inversion: the filename describes the icon's
-     * own colour, not the system theme it's named after. A dark system
-     * theme means a dark panel background, which needs a light-coloured
-     * icon to stay visible - so DARK resolves to loading "-light.png",
-     * and LIGHT resolves to loading "-dark.png". */
+    /* resolve AUTO in case the caller passed it directly; note the
+     * inversion - a dark system theme needs a light-coloured icon to
+     * stay visible, so DARK loads "-light.png" and vice versa */
     resolved = caffeine_icons_resolve_theme (theme);
     variant = (resolved == CAFFEINE_ICON_THEME_DARK) ? "light" : "dark";
 
@@ -101,8 +87,7 @@ caffeine_icons_load (gint target_size, CaffeineIconTheme theme)
         g_free (off_path);
     }
 
-    /* ON: on-light-01.png, on-light-02.png, ... (or on-dark-*) - stop at
-     * the first gap */
+    /* ON: on-light-01.png, on-light-02.png, ... - stop at the first gap */
     frames = g_ptr_array_new ();
     for (n = 1; n <= MAX_ON_FRAMES; n++)
     {

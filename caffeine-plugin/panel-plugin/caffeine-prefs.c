@@ -1,12 +1,7 @@
 /*
  * Preferences dialog for the Caffeine plugin.
- *
- * Kept in its own file on purpose: caffeine.c handles the actual
- * inhibit/uninhibit + icon drawing and should stay focused on that.
- * Everything about settings storage (xfconf) and the properties UI
- * lives here instead.
- *
- * English-only UI strings for now, more preferences to come later.
+ * Settings storage (xfconf) and the properties UI live here, separate
+ * from caffeine.c's inhibit/drawing logic.
  */
 
 #include <xfconf/xfconf.h>
@@ -169,9 +164,7 @@ typedef struct
     GtkWidget *spin_screen_off_custom;
 } PrefsWidgets;
 
-/* Shown on hover over the icon theme radios - nudges the user towards
- * AUTO/matching their system rather than picking blind, without forcing
- * it (custom icon sets may only have one variant anyway). */
+/* Shown on hover over the icon theme radios */
 #define ICON_THEME_TOOLTIP_TEXT \
     "It's recommended to pick the theme that matches your system."
 
@@ -195,9 +188,6 @@ on_screen_off_enabled_toggled (GtkToggleButton *check, gpointer user_data)
     PrefsWidgets *w = (PrefsWidgets *) user_data;
     gboolean      enabled = gtk_toggle_button_get_active (check);
 
-    /* the whole radio-button group is only meaningful once the feature
-     * is switched on, so grey it out entirely rather than leaving picks
-     * the user can interact with but that don't do anything yet */
     gtk_widget_set_sensitive (w->screen_off_box, enabled);
 }
 
@@ -394,8 +384,7 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
 
     gtk_widget_show_all (dialog);
 
-    /* set after show_all(), since show_all() only affects visibility and
-     * would otherwise leave this greyed-out box looking clickable */
+    /* set after show_all(), which only affects visibility not sensitivity */
     gtk_widget_set_sensitive (w.screen_off_box, settings->screen_off_enabled);
 
     response = gtk_dialog_run (GTK_DIALOG (dialog));

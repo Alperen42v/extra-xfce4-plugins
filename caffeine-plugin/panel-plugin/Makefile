@@ -4,16 +4,12 @@ PKG_CONFIG   = pkg-config
 CFLAGS      += -Wall -O2 $(shell $(PKG_CONFIG) --cflags libxfce4panel-2.0 gtk+-3.0 gio-2.0 libxfconf-0)
 LIBS        += $(shell $(PKG_CONFIG) --libs libxfce4panel-2.0 gtk+-3.0 gio-2.0 libxfconf-0) -lm
 
-# Per-user install paths (no sudo needed, doesn't touch the system).
-# Xfce 4.20 looks in $HOME/.local/lib/xfce4/panel/plugins for modules
-# and in $HOME/.local/share/xfce4/panel/plugins for .desktop files
-# (note: "panel/plugins", NOT "panel-plugins" - this changed in 4.20).
+# Per-user install paths (no sudo needed). Xfce 4.20+ uses
+# "panel/plugins", not the older "panel-plugins".
 PLUGIN_LIBDIR = $(HOME)/.local/lib/xfce4/panel/plugins
 DESKTOP_DIR   = $(HOME)/.local/share/xfce4/panel/plugins
 
-# Where make install copies the *default* icons from (bundled in this
-# source tree) to. This is the same fixed folder caffeine-icons.c reads
-# custom icons from at runtime - see caffeine-icons.h.
+# Bundled default icons, copied to the user's icon folder on install.
 DEFAULT_ICONS_SRC = icons
 USER_ICONS_DIR    = $(HOME)/.config/xfce4-caffeine-plugin/icons
 
@@ -35,14 +31,9 @@ install: all install-default-icons
 	install -d $(DESTDIR)$(DESKTOP_DIR)
 	install -m 644 ../caffeine-plugin.desktop $(DESTDIR)$(DESKTOP_DIR)/
 
-# Copies each bundled default icon into the user's icon folder, but only
-# if that exact file isn't already there. This is deliberately per-file,
-# not "only if the folder is empty": if the user only customized off.png,
-# a later `make install` (e.g. after a git pull with a new on-03.png)
-# still adds the new default frame without touching their off.png.
-# $(DESTDIR) is intentionally omitted here - this installs into the
-# invoking user's actual home config dir, not a packaging staging root,
-# since these are per-user runtime files the plugin reads at runtime,
+# Copies each bundled default icon into the user's icon folder unless it
+# already exists there, so user customizations are never overwritten.
+# $(DESTDIR) is intentionally omitted - these are per-user runtime files,
 # not files a package manager should own.
 install-default-icons:
 	install -d $(USER_ICONS_DIR)
