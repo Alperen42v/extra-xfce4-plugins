@@ -17,7 +17,6 @@ Build and install into your user's Xfce panel plugin directory (no
 your user's own config, never system directories):
 
 ```bash
-cd panel-plugin
 make
 make install
 ```
@@ -124,7 +123,6 @@ of the plugin (e.g. on different panels) keep independent settings.
 ## Uninstall
 
 ```bash
-cd panel-plugin
 make uninstall
 xfce4-panel -r
 ```

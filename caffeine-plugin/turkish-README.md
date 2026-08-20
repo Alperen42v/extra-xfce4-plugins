@@ -17,7 +17,6 @@ her şey kendi `$HOME` dizininizin altına kurulur. Bu işlem yalnızca
 kullanıcınıza ait yapılandırmaya dokunur ve sistem dizinlerine asla müdahale etmez):
 
 ```bash
-cd panel-plugin
 make
 make install
 ```
@@ -158,7 +157,6 @@ birbirinden bağımsız ayarlara sahip olabilir.
 ## Kaldırma
 
 ```bash
-cd panel-plugin
 make uninstall
 xfce4-panel -r
 ```
