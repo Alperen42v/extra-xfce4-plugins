@@ -1,0 +1,9 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+X-XFCE-API=2.0
+X-XFCE-Module=nightlight
+X-XFCE-Internal=false
+Name=Night Light
+Comment=Reduce blue light with an adjustable, scheduled warm color filter
+Icon=weather-clear-night-symbolic

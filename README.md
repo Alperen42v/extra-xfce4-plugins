@@ -24,6 +24,7 @@ Have an idea? Don't hesitate to share it. Even a small suggestion can become the
 Each plugin has its own directory and README with more detailed information.
 
 - [Caffeine](./caffeine-plugin/README.md)
+- [Nightlight](./nightlight-plugin/README.md)
 
 ## 🛠️ Development
 

@@ -24,7 +24,8 @@ Bir fikriniz mi var? Paylaşmaktan çekinmeyin. Küçük bir öneri bile kullan�
 
 Her eklentinin kendi dizini ve daha ayrıntılı bilgilerin yer aldığı bir README dosyası vardır.
 
-- [Caffeine](./caffeine-plugin/README.md)
+- [Caffeine](./caffeine-plugin/turkish-README.md)
+- [Nightlight](./caffeine-plugin/turkish-README.md)
 
 ## 🛠️ Geliştirme
 
