@@ -1,6 +1,14 @@
 /*
  * Custom icon loading for the Caffeine plugin: finds icon files on
  * disk, loads/scales them, hands back pixbufs.
+ *
+ * Two possible locations are checked, in priority order:
+ *   1. the user's own folder (~/.config/xfce4-caffeine-plugin/icons) -
+ *      always wins if it has anything for the needed variant, so a
+ *      user's customization is never shadowed by a system default;
+ *   2. a system-wide folder (installed by `sudo make install`, see
+ *      CAFFEINE_SYSTEM_ICON_DIR below) - visible to every account on
+ *      the machine, used only if the user has no override of their own.
  */
 
 #include <gio/gio.h>
@@ -10,11 +18,25 @@
 
 #define MAX_ON_FRAMES 999  /* sanity cap, matches the "on-999.png" width below */
 
+/* Overridden at build time via -DCAFFEINE_SYSTEM_ICON_DIR=... in the
+ * Makefile, so it matches wherever `sudo make install` actually put the
+ * default icons on this system. This fallback only matters if the
+ * plugin was built without going through the Makefile. */
+#ifndef CAFFEINE_SYSTEM_ICON_DIR
+#define CAFFEINE_SYSTEM_ICON_DIR "/usr/share/xfce4-caffeine-plugin/icons"
+#endif
+
 gchar *
 caffeine_icons_get_folder (void)
 {
     return g_build_filename (g_get_home_dir (), ".config",
                               "xfce4-caffeine-plugin", "icons", NULL);
+}
+
+gchar *
+caffeine_icons_get_system_folder (void)
+{
+    return g_strdup (CAFFEINE_SYSTEM_ICON_DIR);
 }
 
 CaffeineIconTheme
@@ -59,10 +81,40 @@ load_scaled_png (const gchar *path, gint size)
     return pixbuf;
 }
 
+/* TRUE if `folder` has at least one file for this variant (off-*.png or
+ * the first on-*-01.png frame) - used to decide whether the user folder
+ * has an override before falling back to the system folder. */
+static gboolean
+folder_has_variant (const gchar *folder, const gchar *variant)
+{
+    gchar    *name;
+    gchar    *path;
+    gboolean  found;
+
+    name = g_strdup_printf ("off-%s.png", variant);
+    path = g_build_filename (folder, name, NULL);
+    found = g_file_test (path, G_FILE_TEST_IS_REGULAR);
+    g_free (name);
+    g_free (path);
+
+    if (found)
+        return TRUE;
+
+    name = g_strdup_printf ("on-%s-01.png", variant);
+    path = g_build_filename (folder, name, NULL);
+    found = g_file_test (path, G_FILE_TEST_IS_REGULAR);
+    g_free (name);
+    g_free (path);
+
+    return found;
+}
+
 CaffeineIconSet *
 caffeine_icons_load (gint target_size, CaffeineIconTheme theme)
 {
     CaffeineIconSet   *icons;
+    gchar             *user_folder;
+    gchar             *system_folder;
     gchar             *folder;
     GPtrArray         *frames;
     gint               n;
@@ -76,7 +128,27 @@ caffeine_icons_load (gint target_size, CaffeineIconTheme theme)
     variant = (resolved == CAFFEINE_ICON_THEME_DARK) ? "light" : "dark";
 
     icons = g_new0 (CaffeineIconSet, 1);
-    folder = caffeine_icons_get_folder ();
+
+    /* user override wins if present; otherwise fall back to the
+     * system-wide default set installed by `sudo make install` */
+    user_folder = caffeine_icons_get_folder ();
+    system_folder = caffeine_icons_get_system_folder ();
+
+    if (folder_has_variant (user_folder, variant))
+    {
+        folder = user_folder;
+        g_free (system_folder);
+    }
+    else if (folder_has_variant (system_folder, variant))
+    {
+        folder = system_folder;
+        g_free (user_folder);
+    }
+    else
+    {
+        folder = user_folder; /* nothing found anywhere; nothing will load below */
+        g_free (system_folder);
+    }
 
     /* OFF: single static frame, e.g. off-light.png / off-dark.png */
     {

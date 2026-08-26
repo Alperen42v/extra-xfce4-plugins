@@ -23,7 +23,13 @@ typedef enum
  * plugin picks them up automatically. Missing files fall back to the
  * built-in Cairo-drawn cup.
  *
- * Layout expected under the icon folder (see caffeine_icons_get_folder()):
+ * Two folders are checked, in order (see caffeine_icons_get_folder()
+ * and caffeine_icons_get_system_folder()): the user's own folder wins
+ * if it has anything for the needed variant; otherwise the system-wide
+ * folder (installed by `sudo make install`, visible to every account)
+ * is used as the default.
+ *
+ * Layout expected under either folder:
  *   off-light.png     - OFF state, light-coloured icon (for dark panels/themes)
  *   off-dark.png       - OFF state, dark-coloured icon (for light panels/themes)
  *   on-light-01.png
@@ -50,18 +56,27 @@ typedef struct
     guint       on_frame_count; /* 0 if on_frames is NULL */
 } CaffeineIconSet;
 
-/* Returns the icon folder path, newly-allocated (caller must g_free()).
- * Currently "~/.config/xfce4-caffeine-plugin/icons". */
+/* Returns the user's icon override folder, newly-allocated (caller must
+ * g_free()). Currently "~/.config/xfce4-caffeine-plugin/icons". Checked
+ * first; if it has icons for the needed variant they take priority over
+ * the system-wide folder below. */
 gchar *caffeine_icons_get_folder (void);
+
+/* Returns the system-wide default icon folder, newly-allocated (caller
+ * must g_free()). This is where `sudo make install` places the bundled
+ * default icons so they're available to every user account; used only
+ * when the user has no override of their own for the needed variant. */
+gchar *caffeine_icons_get_system_folder (void);
 
 /* Resolves AUTO to LIGHT or DARK based on the current GTK theme.
  * LIGHT/DARK are returned unchanged. */
 CaffeineIconTheme caffeine_icons_resolve_theme (CaffeineIconTheme theme);
 
-/* Scans the icon folder for the given theme variant and loads whatever
- * is found, scaled to target_size x target_size. Missing files leave
- * the corresponding CaffeineIconSet field NULL/0 - always succeeds.
- * Free the result with caffeine_icon_set_free(). */
+/* Scans the user folder, then the system folder, for the given theme
+ * variant and loads whatever is found first, scaled to target_size x
+ * target_size. Missing files leave the corresponding CaffeineIconSet
+ * field NULL/0 - always succeeds. Free the result with
+ * caffeine_icon_set_free(). */
 CaffeineIconSet *caffeine_icons_load (gint target_size, CaffeineIconTheme theme);
 
 void caffeine_icon_set_free (CaffeineIconSet *icons);
