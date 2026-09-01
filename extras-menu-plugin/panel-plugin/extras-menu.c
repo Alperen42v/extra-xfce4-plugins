@@ -29,6 +29,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->button_icon = NULL;
     plugin->popover = NULL;
     plugin->volume_scale = NULL;
+    plugin->volume_icon = NULL;
     plugin->audio = NULL;
     plugin->updating_volume_from_backend = FALSE;
     plugin->brightness_scale = NULL;
@@ -146,7 +147,6 @@ static void
 on_audio_changed(guint volume_percent, gboolean muted, gpointer user_data)
 {
     ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
-    (void) muted; /* not reflected in the UI yet */
 
     if (plugin->volume_scale == NULL)
         return;
@@ -160,6 +160,28 @@ on_audio_changed(guint volume_percent, gboolean muted, gpointer user_data)
     plugin->updating_volume_from_backend = TRUE;
     gtk_range_set_value(GTK_RANGE(plugin->volume_scale), (gdouble) volume_percent);
     plugin->updating_volume_from_backend = FALSE;
+
+    /* Swap the speaker icon to its muted variant whenever the sink is
+     * either explicitly muted or simply at 0% -- both look the same
+     * to the user, so both get the crossed-out icon. Otherwise scale
+     * the icon by level, matching what most desktop volume sliders do
+     * (low/medium/high), purely as a visual nicety. */
+    if (plugin->volume_icon != NULL)
+    {
+        const gchar *icon_name;
+
+        if (muted || volume_percent == 0)
+            icon_name = "audio-volume-muted-symbolic";
+        else if (volume_percent < 34)
+            icon_name = "audio-volume-low-symbolic";
+        else if (volume_percent < 67)
+            icon_name = "audio-volume-medium-symbolic";
+        else
+            icon_name = "audio-volume-high-symbolic";
+
+        gtk_image_set_from_icon_name(GTK_IMAGE(plugin->volume_icon),
+                                      icon_name, GTK_ICON_SIZE_BUTTON);
+    }
 }
 
 /* Called when the user drags the slider (or otherwise changes its
@@ -261,6 +283,7 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     gtk_window_set_resizable(GTK_WINDOW(plugin->popover), FALSE);
 
     GtkWidget *content = extras_menu_popover_content_new(&plugin->volume_scale,
+                                                           &plugin->volume_icon,
                                                            &plugin->brightness_scale);
     gtk_container_add(GTK_CONTAINER(plugin->popover), content);
 

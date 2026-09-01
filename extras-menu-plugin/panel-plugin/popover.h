@@ -14,14 +14,17 @@ G_BEGIN_DECLS
  * give the caller (extras-menu.c) handles to the two sliders so they
  * can be wired up to real backends (PulseAudio/PipeWire for volume,
  * brightnessctl for brightness) -- both to push user-driven changes
- * out, and to reflect external changes back in. Either out-param may
- * be NULL if the caller doesn't need that handle.
+ * out, and to reflect external changes back in. volume_icon hands back
+ * the volume row's icon GtkImage, so the caller can swap it to a
+ * "muted" icon at 0%/when muted. Any out-param may be NULL if the
+ * caller doesn't need that handle.
  *
  * The pill grid (Bluetooth/Dark Mode/Aeroplane Mode/...) remains
  * purely visual for now; only the two sliders are backend-aware at
  * this stage.
  */
 GtkWidget *extras_menu_popover_content_new(GtkWidget **volume_scale,
+                                            GtkWidget **volume_icon,
                                             GtkWidget **brightness_scale);
 
 G_END_DECLS

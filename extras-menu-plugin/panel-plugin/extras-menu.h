@@ -34,8 +34,10 @@ struct _ExtrasMenuPlugin
      * gtk_window_set_keep_above() sidesteps that entirely. */
     GtkWidget *popover;
 
-    /* volume slider inside the popover, and the backend driving it */
+    /* volume slider inside the popover, its icon (swapped to a muted
+     * variant at 0%/when muted), and the backend driving both */
     GtkWidget *volume_scale;
+    GtkWidget *volume_icon;
     ExtrasMenuAudio *audio;
 
     /* brightness slider inside the popover, and the backend driving it */

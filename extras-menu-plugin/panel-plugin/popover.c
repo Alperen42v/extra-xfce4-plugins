@@ -105,9 +105,12 @@ extras_menu_make_pill_expander(const gchar *icon_name,
 /* Generic full-width slider row with a leading icon, used for both
  * the volume row and the brightness row -- same visual shape, only
  * the icon and starting value differ. The scale itself is handed back
- * via out_scale so the caller can wire it up to a real backend. */
+ * via out_scale so the caller can wire it up to a real backend.
+ * out_icon (optional) hands back the icon GtkImage too, so callers
+ * that want to swap it dynamically (e.g. volume -> muted icon at 0%)
+ * can do so without having to dig through the row's children. */
 static GtkWidget *
-extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale)
+extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWidget **out_icon)
 {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     extras_menu_apply_css(row);
@@ -125,12 +128,15 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale)
 
     if (out_scale != NULL)
         *out_scale = scale;
+    if (out_icon != NULL)
+        *out_icon = icon;
 
     return row;
 }
 
 GtkWidget *
-extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **brightness_scale)
+extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_icon,
+                                 GtkWidget **brightness_scale)
 {
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     extras_menu_apply_css(root);
@@ -140,16 +146,19 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **brightness
 
     /* --- volume slider row --- */
     GtkWidget *vol_scale = NULL;
+    GtkWidget *vol_icon = NULL;
     gtk_box_pack_start(GTK_BOX(root),
-                        extras_menu_make_slider_row("audio-volume-high-symbolic", &vol_scale),
+                        extras_menu_make_slider_row("audio-volume-high-symbolic", &vol_scale, &vol_icon),
                         FALSE, FALSE, 0);
     if (volume_scale != NULL)
         *volume_scale = vol_scale;
+    if (volume_icon != NULL)
+        *volume_icon = vol_icon;
 
     /* --- brightness slider row, directly below volume --- */
     GtkWidget *bright_scale = NULL;
     gtk_box_pack_start(GTK_BOX(root),
-                        extras_menu_make_slider_row("display-brightness-symbolic", &bright_scale),
+                        extras_menu_make_slider_row("display-brightness-symbolic", &bright_scale, NULL),
                         FALSE, FALSE, 0);
     if (brightness_scale != NULL)
         *brightness_scale = bright_scale;
