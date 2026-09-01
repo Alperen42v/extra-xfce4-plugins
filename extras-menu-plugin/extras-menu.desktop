@@ -1,0 +1,8 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+X-XFCE-API=2.0
+X-XFCE-Module=extras-menu
+X-XFCE-Internal=false
+Comment=Compact popup for Wi-Fi, Bluetooth, volume, brightness and more
+Icon=preferences-system

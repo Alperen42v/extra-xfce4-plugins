@@ -26,6 +26,7 @@ Her eklentinin kendi dizini ve daha ayrıntılı bilgilerin yer aldığı bir RE
 
 - [Caffeine](./caffeine-plugin/turkish-README.md)
 - [Nightlight](./caffeine-plugin/turkish-README.md)
+- [Extras-menu](./extras-menu-plugin/turkish-README.md)
 
 ## 🛠️ Geliştirme
 
