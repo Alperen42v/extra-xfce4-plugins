@@ -44,3 +44,11 @@ xfce4-panel -r
 ```
 
 Panelde sağ tık → Panel → Öğe Ekle... üzerinden "Extras Menu" olarak eklenebilir.
+
+## Notlar
+
+1.**Bluetooth toggle test edilemedi:** Geliştirici donanımında Bluetooth
+adaptörü bulunmadığı için adaptör açma/kapama backend'i gerçek donanımda uçtan uca test edilemedi.
+Kod mantığı sağlam ancak gerçek bir
+Bluetooth adaptörü olan biri tarafından doğrulanması gerekiyor. Sorun
+yaşarsan issue açabilirsin.

@@ -46,3 +46,6 @@ xfce4-panel -r
 It can be added to the panel by right-clicking → Panel → Add New Items...
 and selecting "Extras Menu".
 
+### Notes
+
+1. **Bluetooth toggle could not be tested:** Since the developer's hardware does not have a Bluetooth adapter, the backend for enabling/disabling the adapter could not be tested end-to-end on real hardware.The code logic appears to be solid, but it needs to be verified by someone with an actual Bluetooth adapter. If you encounter any issues, you can open an issue.

@@ -9,7 +9,7 @@ G_BEGIN_DECLS
 /* Current plugin version, shown in the preferences dialog. Bump this
  * by hand as the plugin evolves -- there's no build-time version
  * injection set up yet. */
-#define EXTRAS_MENU_VERSION "0.1.0-alpha"
+#define EXTRAS_MENU_VERSION "0.1.2-alpha"
 
 /* Builds and shows the preferences dialog for the plugin, anchored to
  * the panel it belongs to. Currently just shows the version/release

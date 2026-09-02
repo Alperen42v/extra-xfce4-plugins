@@ -18,7 +18,7 @@ LDFLAGS += -shared
 SRC_DIR = panel-plugin
 BUILD_DIR = build
 
-SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC_DIR)/brightness.c $(SRC_DIR)/preferences.c
+SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC_DIR)/brightness.c $(SRC_DIR)/preferences.c $(SRC_DIR)/bluetooth.c
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
 TARGET = $(BUILD_DIR)/lib$(PLUGIN_NAME).so

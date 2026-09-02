@@ -16,16 +16,19 @@ G_BEGIN_DECLS
  * brightnessctl for brightness) -- both to push user-driven changes
  * out, and to reflect external changes back in. volume_icon hands back
  * the volume row's icon GtkImage, so the caller can swap it to a
- * "muted" icon at 0%/when muted. Any out-param may be NULL if the
- * caller doesn't need that handle.
+ * "muted" icon at 0%/when muted. bluetooth_toggle hands back the
+ * Bluetooth pill's GtkToggleButton so the caller can wire it up to the
+ * BlueZ backend the same way. Any out-param may be NULL if the caller
+ * doesn't need that handle.
  *
- * The pill grid (Bluetooth/Dark Mode/Aeroplane Mode/...) remains
- * purely visual for now; only the two sliders are backend-aware at
- * this stage.
+ * The rest of the pill grid (Dark Mode/Aeroplane Mode/Wired/...)
+ * remains purely visual for now; only the sliders and the Bluetooth
+ * toggle are backend-aware at this stage.
  */
 GtkWidget *extras_menu_popover_content_new(GtkWidget **volume_scale,
                                             GtkWidget **volume_icon,
-                                            GtkWidget **brightness_scale);
+                                            GtkWidget **brightness_scale,
+                                            GtkWidget **bluetooth_toggle);
 
 G_END_DECLS
 

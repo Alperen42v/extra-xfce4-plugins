@@ -136,7 +136,7 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWi
 
 GtkWidget *
 extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_icon,
-                                 GtkWidget **brightness_scale)
+                                 GtkWidget **brightness_scale, GtkWidget **bluetooth_toggle)
 {
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     extras_menu_apply_css(root);
@@ -172,7 +172,14 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
     GtkWidget *wired = extras_menu_make_pill_expander("network-wired-symbolic", "Wired");
     GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "");
 
-    GtkWidget *bluetooth = extras_menu_make_pill_toggle("bluetooth-symbolic", "Bluetooth", TRUE, FALSE);
+    /* Starts unchecked regardless of the mockup's default -- the real
+     * state comes from the Bluetooth backend shortly after the
+     * dropdown is built, same startup pattern as the volume/brightness
+     * sliders (they start at 0 until their backends report in). */
+    GtkWidget *bluetooth = extras_menu_make_pill_toggle("bluetooth-symbolic", "Bluetooth", FALSE, FALSE);
+    if (bluetooth_toggle != NULL)
+        *bluetooth_toggle = bluetooth;
+
     GtkWidget *balanced = extras_menu_make_pill_toggle("weather-clear-symbolic", "Balanced", FALSE, FALSE);
 
     GtkWidget *dark_mode = extras_menu_make_pill_toggle("weather-clear-night-symbolic", "Dark Mode", FALSE, FALSE);

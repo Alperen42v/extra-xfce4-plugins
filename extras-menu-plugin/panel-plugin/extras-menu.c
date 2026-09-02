@@ -35,6 +35,12 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->brightness_scale = NULL;
     plugin->brightness = NULL;
     plugin->updating_brightness_from_backend = FALSE;
+    plugin->bluetooth_toggle = NULL;
+    plugin->bluetooth = NULL;
+    plugin->updating_bluetooth_from_backend = FALSE;
+    plugin->bluetooth_last_available = FALSE;
+    plugin->bluetooth_last_powered = FALSE;
+    plugin->bluetooth_has_state = FALSE;
 }
 
 /* Moves the dropdown window so it sits next to the panel button,
@@ -225,6 +231,67 @@ on_brightness_scale_changed(GtkRange *range, ExtrasMenuPlugin *plugin)
     extras_menu_brightness_set(plugin->brightness, percent);
 }
 
+/* Applies a Bluetooth state (available/powered) to the toggle widget.
+ * Shared by on_bluetooth_changed() (the normal path) and the
+ * end of construct() (to catch the case where the backend's first
+ * callback arrived before the widget existed -- see
+ * bluetooth_has_state in extras-menu.h for why that can happen). */
+static void
+apply_bluetooth_state(ExtrasMenuPlugin *plugin, gboolean available, gboolean powered)
+{
+    if (plugin->bluetooth_toggle == NULL)
+        return;
+
+    gtk_widget_set_sensitive(plugin->bluetooth_toggle, available);
+
+    /* See on_audio_changed() for why this flag exists -- same
+     * feedback-loop concern, this time against BlueZ. Explicitly force
+     * the checked state to FALSE when unavailable (rather than leaving
+     * whatever the button's initial/previous state was) -- a toggle
+     * showing "on" while insensitive would be actively misleading. */
+    plugin->updating_bluetooth_from_backend = TRUE;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(plugin->bluetooth_toggle),
+                                  available ? powered : FALSE);
+    plugin->updating_bluetooth_from_backend = FALSE;
+}
+
+/* Called by the Bluetooth backend once we know the adapter's Powered
+ * state, and again on every subsequent change (from us or elsewhere --
+ * bluetoothctl, rfkill, a hardware switch). If no adapter is available
+ * at all, the toggle is disabled outright rather than left in a
+ * misleading on/off state.
+ *
+ * Always caches the latest state on the plugin first: GDBus has been
+ * observed to invoke this callback before bluetooth_toggle has been
+ * assigned yet in some cases (i.e. before extras_menu_bluetooth_new()
+ * has returned to construct()), in which case apply_bluetooth_state()
+ * below is a no-op and the state would otherwise be silently lost --
+ * construct() re-applies the cached state once the widget exists. */
+static void
+on_bluetooth_changed(gboolean available, gboolean powered, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
+
+    plugin->bluetooth_last_available = available;
+    plugin->bluetooth_last_powered = powered;
+    plugin->bluetooth_has_state = TRUE;
+
+    apply_bluetooth_state(plugin, available, powered);
+}
+
+/* Called when the user clicks the Bluetooth pill. Pushes the new
+ * power state out to BlueZ, unless the change actually came from
+ * on_bluetooth_changed() above. */
+static void
+on_bluetooth_toggle_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
+{
+    if (plugin->updating_bluetooth_from_backend)
+        return;
+
+    extras_menu_bluetooth_set_powered(plugin->bluetooth,
+                                       gtk_toggle_button_get_active(button));
+}
+
 /* Fired when the user picks "Properties..." from the plugin's
  * right-click panel menu (enabled via
  * xfce_panel_plugin_menu_show_configure() in construct() below). */
@@ -250,6 +317,12 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
     {
         extras_menu_brightness_free(plugin->brightness);
         plugin->brightness = NULL;
+    }
+
+    if (plugin->bluetooth != NULL)
+    {
+        extras_menu_bluetooth_free(plugin->bluetooth);
+        plugin->bluetooth = NULL;
     }
 }
 
@@ -284,7 +357,8 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 
     GtkWidget *content = extras_menu_popover_content_new(&plugin->volume_scale,
                                                            &plugin->volume_icon,
-                                                           &plugin->brightness_scale);
+                                                           &plugin->brightness_scale,
+                                                           &plugin->bluetooth_toggle);
     gtk_container_add(GTK_CONTAINER(plugin->popover), content);
 
     /* Frame + drop shadow so the window doesn't look like a bare
@@ -331,6 +405,32 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     {
         g_signal_connect(plugin->brightness_scale, "value-changed",
                           G_CALLBACK(on_brightness_scale_changed), plugin);
+    }
+
+    /* --- Bluetooth backend: finds the first adapter async, reports
+     * its Powered state (and every subsequent change) through
+     * on_bluetooth_changed. Device list / pairing is a follow-up --
+     * for now this only drives the adapter on/off toggle. --- */
+    plugin->bluetooth = extras_menu_bluetooth_new(on_bluetooth_changed, plugin);
+
+    if (plugin->bluetooth_toggle != NULL)
+    {
+        /* Disabled until the backend confirms an adapter actually
+         * exists (see on_bluetooth_changed) -- avoids a toggle that
+         * looks clickable but silently does nothing on machines
+         * without Bluetooth hardware. */
+        gtk_widget_set_sensitive(plugin->bluetooth_toggle, FALSE);
+        g_signal_connect(plugin->bluetooth_toggle, "toggled",
+                          G_CALLBACK(on_bluetooth_toggle_clicked), plugin);
+
+        /* Catch up on any state the backend already reported before
+         * this widget existed -- see bluetooth_has_state in
+         * extras-menu.h for why that can happen. */
+        if (plugin->bluetooth_has_state)
+        {
+            apply_bluetooth_state(plugin, plugin->bluetooth_last_available,
+                                   plugin->bluetooth_last_powered);
+        }
     }
 
     g_signal_connect(panel_plugin, "free-data",
