@@ -1,6 +1,49 @@
 #include "extras-menu.h"
 #include "popover.h"
 #include "preferences.h"
+#include "network.h"
+
+/* TEMPORARY: compile-and-log-only test hook for the network backend,
+ * before it's wired into real UI. Prints the discovered network list
+ * to the terminal so we can verify the D-Bus logic works before
+ * spending time on the revealer/list UI and password dialog. Will be
+ * removed once real UI is wired up. */
+static void
+debug_on_network_list_changed(gboolean available, const ExtrasMenuAccessPoint *aps,
+                               guint count, gpointer user_data)
+{
+    (void) user_data;
+
+    if (!available)
+    {
+        g_message("extras-menu: [network debug] Wi-Fi not available");
+        return;
+    }
+
+    g_message("extras-menu: [network debug] %u network(s) found:", count);
+    for (guint i = 0; i < count; i++)
+    {
+        g_message("extras-menu: [network debug]   %s  strength=%d%%  secured=%d  active=%d",
+                   aps[i].ssid, aps[i].strength, aps[i].secured, aps[i].is_active);
+    }
+}
+
+/* TEMPORARY: see debug_on_network_list_changed() above -- same idea,
+ * for the overall Wi-Fi/Ethernet status. */
+static void
+debug_on_network_status_changed(ExtrasMenuNetworkKind kind, const gchar *ip_address, gpointer user_data)
+{
+    (void) user_data;
+
+    const gchar *kind_name = "NONE";
+    if (kind == EXTRAS_MENU_NETWORK_KIND_WIFI)
+        kind_name = "WIFI";
+    else if (kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET)
+        kind_name = "ETHERNET";
+
+    g_message("extras-menu: [network debug] status kind=%s ip=%s",
+               kind_name, ip_address != NULL ? ip_address : "(none)");
+}
 
 static void extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin);
 
@@ -432,6 +475,13 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                                    plugin->bluetooth_last_powered);
         }
     }
+
+    /* TEMPORARY: network backend compile/logic test -- see
+     * debug_on_network_list_changed() above. Not stored on plugin or
+     * freed yet since this is a throwaway test; will be replaced by
+     * real UI wiring (plugin->network field, proper free-data
+     * cleanup) once the revealer/list UI exists. */
+    extras_menu_network_new(debug_on_network_list_changed, debug_on_network_status_changed, plugin);
 
     g_signal_connect(panel_plugin, "free-data",
                       G_CALLBACK(on_plugin_free_data), plugin);
