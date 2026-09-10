@@ -7,6 +7,7 @@
 #include "audio.h"
 #include "bluetooth.h"
 #include "brightness.h"
+#include "network.h"
 
 G_BEGIN_DECLS
 
@@ -49,6 +50,27 @@ struct _ExtrasMenuPlugin
      * driving it (adapter power on/off only, for now) */
     GtkWidget *bluetooth_toggle;
     ExtrasMenuBluetooth *bluetooth;
+
+    /* Network pill (labeled "Wi-Fi" or "Ethernet" depending on the
+     * active connection) inside the popover, and the backend driving
+     * it. Step 1 (this field set) is just keeping the pill's
+     * label/icon in sync with reality; the Wi-Fi list revealer and
+     * password dialog are a follow-up. */
+    GtkWidget *network_pill_button;
+    GtkWidget *network_pill_label;
+    GtkWidget *network_pill_icon;
+    GtkWidget *network_revealer;
+    GtkWidget *network_list_box;
+    ExtrasMenuNetwork *network;
+
+    /* Last status reported by the network backend, cached here for the
+     * same reason as bluetooth_last_available/powered below -- GDBus
+     * has been observed to invoke callbacks before the relevant
+     * widgets exist yet in some cases. Applied to the widgets as soon
+     * as they're available. */
+    ExtrasMenuNetworkKind network_last_kind;
+    gchar *network_last_ip_address;
+    gboolean network_has_status;
 
     /* Last state reported by the Bluetooth backend, cached here in
      * case on_bluetooth_changed() fires before bluetooth_toggle exists

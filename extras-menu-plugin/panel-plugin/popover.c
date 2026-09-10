@@ -73,12 +73,16 @@ extras_menu_make_pill_toggle(const gchar *icon_name,
 }
 
 /* A pill row with a chevron on the right, used for entries that open a
- * submenu (e.g. the "Wired" network list, or the quality-preset row
- * next to Balanced in the mockup). Purely visual for now: the chevron
- * click does nothing until a follow-up submenu is wired in. */
+ * submenu (e.g. the network pill's Wi-Fi list, or the quality-preset
+ * row next to Balanced in the mockup). out_label and out_icon (both
+ * optional) hand back the label and icon widgets so callers can
+ * update them dynamically (e.g. the network pill switching between
+ * "Wi-Fi" and "Ethernet" as the connection changes). */
 static GtkWidget *
 extras_menu_make_pill_expander(const gchar *icon_name,
-                                const gchar *label_text)
+                                const gchar *label_text,
+                                GtkWidget **out_label,
+                                GtkWidget **out_icon)
 {
     GtkWidget *button = gtk_button_new();
     extras_menu_apply_css(button);
@@ -98,6 +102,11 @@ extras_menu_make_pill_expander(const gchar *icon_name,
     gtk_box_pack_start(GTK_BOX(box), chevron, FALSE, FALSE, 0);
 
     gtk_container_add(GTK_CONTAINER(button), box);
+
+    if (out_label != NULL)
+        *out_label = label;
+    if (out_icon != NULL)
+        *out_icon = icon;
 
     return button;
 }
@@ -136,7 +145,10 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWi
 
 GtkWidget *
 extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_icon,
-                                 GtkWidget **brightness_scale, GtkWidget **bluetooth_toggle)
+                                 GtkWidget **brightness_scale, GtkWidget **bluetooth_toggle,
+                                 GtkWidget **network_pill_button, GtkWidget **network_pill_label,
+                                 GtkWidget **network_pill_icon, GtkWidget **network_revealer,
+                                 GtkWidget **network_list_box)
 {
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     extras_menu_apply_css(root);
@@ -169,8 +181,18 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
     gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
     gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
 
-    GtkWidget *wired = extras_menu_make_pill_expander("network-wired-symbolic", "Wired");
-    GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "");
+    GtkWidget *network_label = NULL;
+    GtkWidget *network_icon = NULL;
+    GtkWidget *wired = extras_menu_make_pill_expander("network-wired-symbolic", "Wi-Fi",
+                                                        &network_label, &network_icon);
+    if (network_pill_button != NULL)
+        *network_pill_button = wired;
+    if (network_pill_label != NULL)
+        *network_pill_label = network_label;
+    if (network_pill_icon != NULL)
+        *network_pill_icon = network_icon;
+
+    GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "", NULL, NULL);
 
     /* Starts unchecked regardless of the mockup's default -- the real
      * state comes from the Bluetooth backend shortly after the
@@ -194,6 +216,38 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
 
     gtk_box_pack_start(GTK_BOX(root), grid, FALSE, FALSE, 0);
 
+    /* --- Wi-Fi network list, hidden by default, revealed when the
+     * "Wi-Fi" pill above is clicked. Full width (not part of the 2x3
+     * grid) since a network list doesn't fit the two-column layout. */
+    GtkWidget *revealer = gtk_revealer_new();
+    gtk_revealer_set_transition_type(GTK_REVEALER(revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+    gtk_revealer_set_reveal_child(GTK_REVEALER(revealer), FALSE);
+
+    GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    /* Cap the list's height so a long scan result doesn't make the
+     * dropdown grow to fill the whole screen -- it scrolls instead. */
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scrolled), 200);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scrolled), TRUE);
+
+    GtkWidget *list_box = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
+    gtk_container_add(GTK_CONTAINER(scrolled), list_box);
+    gtk_container_add(GTK_CONTAINER(revealer), scrolled);
+
+    gtk_box_pack_start(GTK_BOX(root), revealer, FALSE, FALSE, 0);
+
+    if (network_revealer != NULL)
+        *network_revealer = revealer;
+    if (network_list_box != NULL)
+        *network_list_box = list_box;
+
     gtk_widget_show_all(root);
+    /* The revealer's child (scrolled/list_box) was just made visible
+     * by show_all above, but the revealer itself stays collapsed
+     * (0-height) until reveal-child is set TRUE -- show_all does not
+     * override that, it only affects widget visibility, not the
+     * revealer's own reveal state. */
     return root;
 }

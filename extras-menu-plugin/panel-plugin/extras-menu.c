@@ -3,46 +3,287 @@
 #include "preferences.h"
 #include "network.h"
 
-/* TEMPORARY: compile-and-log-only test hook for the network backend,
- * before it's wired into real UI. Prints the discovered network list
- * to the terminal so we can verify the D-Bus logic works before
- * spending time on the revealer/list UI and password dialog. Will be
- * removed once real UI is wired up. */
+/* Applies a network status (kind + IP) to the pill's label/icon.
+ * Shared by on_network_status_changed() (the normal path) and the end
+ * of construct() (to catch the case where the backend's first
+ * callback arrived before the widgets existed -- see
+ * network_has_status in extras-menu.h for why that can happen). */
 static void
-debug_on_network_list_changed(gboolean available, const ExtrasMenuAccessPoint *aps,
-                               guint count, gpointer user_data)
+apply_network_status(ExtrasMenuPlugin *plugin, ExtrasMenuNetworkKind kind)
 {
-    (void) user_data;
-
-    if (!available)
-    {
-        g_message("extras-menu: [network debug] Wi-Fi not available");
+    if (plugin->network_pill_label == NULL || plugin->network_pill_icon == NULL)
         return;
-    }
 
-    g_message("extras-menu: [network debug] %u network(s) found:", count);
-    for (guint i = 0; i < count; i++)
+    switch (kind)
     {
-        g_message("extras-menu: [network debug]   %s  strength=%d%%  secured=%d  active=%d",
-                   aps[i].ssid, aps[i].strength, aps[i].secured, aps[i].is_active);
+        case EXTRAS_MENU_NETWORK_KIND_ETHERNET:
+            gtk_label_set_text(GTK_LABEL(plugin->network_pill_label), "Ethernet");
+            gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_pill_icon),
+                                          "network-wired-symbolic", GTK_ICON_SIZE_BUTTON);
+            break;
+
+        case EXTRAS_MENU_NETWORK_KIND_WIFI:
+            gtk_label_set_text(GTK_LABEL(plugin->network_pill_label), "Wi-Fi");
+            gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_pill_icon),
+                                          "network-wireless-symbolic", GTK_ICON_SIZE_BUTTON);
+            break;
+
+        case EXTRAS_MENU_NETWORK_KIND_NONE:
+        default:
+            gtk_label_set_text(GTK_LABEL(plugin->network_pill_label), "Wi-Fi");
+            gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_pill_icon),
+                                          "network-wireless-offline-symbolic", GTK_ICON_SIZE_BUTTON);
+            break;
     }
 }
 
-/* TEMPORARY: see debug_on_network_list_changed() above -- same idea,
- * for the overall Wi-Fi/Ethernet status. */
+/* Called by the network backend whenever the active connection kind
+ * (Wi-Fi/Ethernet/none) or its IP (Ethernet only) changes. For now
+ * this only keeps the pill's label and icon in sync with reality --
+ * clicking it still does nothing (that's the next step: a Wi-Fi list
+ * revealer, or an Ethernet info view).
+ *
+ * Always caches the latest status on the plugin first -- see
+ * apply_bluetooth_state()/on_bluetooth_changed() for why (GDBus can
+ * invoke this before the widgets exist yet); construct() re-applies
+ * the cached status once they do. */
 static void
-debug_on_network_status_changed(ExtrasMenuNetworkKind kind, const gchar *ip_address, gpointer user_data)
+on_network_status_changed(ExtrasMenuNetworkKind kind, const gchar *ip_address, gpointer user_data)
 {
-    (void) user_data;
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
 
-    const gchar *kind_name = "NONE";
-    if (kind == EXTRAS_MENU_NETWORK_KIND_WIFI)
-        kind_name = "WIFI";
-    else if (kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET)
-        kind_name = "ETHERNET";
+    plugin->network_last_kind = kind;
+    g_free(plugin->network_last_ip_address);
+    plugin->network_last_ip_address = ip_address != NULL ? g_strdup(ip_address) : NULL;
+    plugin->network_has_status = TRUE;
 
-    g_message("extras-menu: [network debug] status kind=%s ip=%s",
-               kind_name, ip_address != NULL ? ip_address : "(none)");
+    apply_network_status(plugin, kind);
+}
+
+/* Fired when the "Wi-Fi"/"Ethernet" pill is clicked. Behavior depends
+ * on the current connection kind: in Wi-Fi mode, toggles the network
+ * list revealer open/closed; in Ethernet mode (or no connection),
+ * there's no list to show, so a small info dialog with the IP address
+ * is shown instead (Ethernet has nothing to "choose" the way Wi-Fi
+ * networks do). */
+static void
+on_network_pill_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
+{
+    (void) button;
+
+    if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_WIFI)
+    {
+        if (plugin->network_revealer == NULL)
+            return;
+
+        gboolean currently_open = gtk_revealer_get_reveal_child(GTK_REVEALER(plugin->network_revealer));
+        gtk_revealer_set_reveal_child(GTK_REVEALER(plugin->network_revealer), !currently_open);
+
+        /* Ask for a fresh scan each time the list is opened, so it's
+         * not showing stale results from whenever the dropdown last
+         * happened to scan. */
+        if (!currently_open)
+            extras_menu_network_rescan(plugin->network);
+
+        return;
+    }
+
+    /* Ethernet or no connection: show a simple info dialog instead of
+     * a list -- nothing to pick between on a wired connection. */
+    GtkWidget *dialog = gtk_message_dialog_new(
+        GTK_WINDOW(plugin->popover), GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_INFO, GTK_BUTTONS_OK,
+        plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET
+            ? "Connected via Ethernet"
+            : "Not connected");
+
+    if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET)
+    {
+        gtk_message_dialog_format_secondary_text(
+            GTK_MESSAGE_DIALOG(dialog), "IP address: %s",
+            plugin->network_last_ip_address != NULL ? plugin->network_last_ip_address
+                                                      : "Not yet assigned");
+    }
+
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
+/* Fired once extras_menu_network_connect() (below) finishes, whether
+ * it succeeded or not. On failure, shows the error in a simple message
+ * dialog -- good enough for now; a more polished inline error in the
+ * list row is a possible future improvement. */
+static void
+on_connect_result(gboolean success, const gchar *error_message, gpointer user_data)
+{
+    GtkWindow *parent = GTK_WINDOW(user_data);
+
+    if (success)
+        return;
+
+    GtkWidget *dialog = gtk_message_dialog_new(
+        parent, GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
+        "Couldn't connect to the network.");
+    gtk_message_dialog_format_secondary_text(
+        GTK_MESSAGE_DIALOG(dialog), "%s",
+        error_message != NULL ? error_message : "Unknown error");
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
+/* Prompts for a Wi-Fi password with a small modal dialog, then
+ * attempts to connect. parent_window anchors both the password dialog
+ * and any resulting error dialog. */
+static void
+prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWindow *parent_window)
+{
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(
+        "Wi-Fi Password",
+        parent_window,
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "C_onnect", GTK_RESPONSE_OK,
+        NULL);
+
+    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
+    gtk_container_set_border_width(GTK_CONTAINER(dialog), 12);
+
+    GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 8);
+    gtk_container_add(GTK_CONTAINER(content_area), box);
+
+    gchar *prompt_text = g_strdup_printf("Enter the password for \u201c%s\u201d:", ssid);
+    GtkWidget *label = gtk_label_new(prompt_text);
+    g_free(prompt_text);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+    gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_visibility(GTK_ENTRY(entry), FALSE); /* mask the password */
+    gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE); /* Enter submits */
+    gtk_box_pack_start(GTK_BOX(box), entry, FALSE, FALSE, 0);
+
+    gtk_widget_show_all(dialog);
+
+    gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (response == GTK_RESPONSE_OK)
+    {
+        const gchar *password = gtk_entry_get_text(GTK_ENTRY(entry));
+        extras_menu_network_connect(plugin->network, ssid, password,
+                                     on_connect_result, parent_window);
+    }
+
+    gtk_widget_destroy(dialog);
+}
+
+/* Fired when the user clicks a network row in the Wi-Fi list. Open
+ * networks connect immediately; secured ones prompt for a password
+ * first. Already-active networks are not re-clicked in practice since
+ * they're visually marked instead of being made clickable-looking, but
+ * clicking one anyway would simply reconnect harmlessly. */
+static void
+on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
+    (void) list_box;
+
+    const gchar *ssid = g_object_get_data(G_OBJECT(row), "extras-menu-ssid");
+    gboolean secured = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "extras-menu-secured"));
+
+    if (ssid == NULL)
+        return;
+
+    GtkWindow *parent_window = GTK_WINDOW(plugin->popover);
+
+    if (secured)
+        prompt_password_and_connect(plugin, ssid, parent_window);
+    else
+        extras_menu_network_connect(plugin->network, ssid, NULL, on_connect_result, parent_window);
+}
+
+/* Builds one GtkListBoxRow for an access point: signal-strength icon,
+ * SSID, a lock icon if secured, and a checkmark if this is the network
+ * we're currently connected to. The SSID and secured flag are stashed
+ * as object data so on_network_row_activated() (above) can read them
+ * back without needing a parallel data structure to look rows up in. */
+static GtkWidget *
+make_network_row(const ExtrasMenuAccessPoint *ap)
+{
+    GtkWidget *row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(row_box), 6);
+
+    const gchar *strength_icon;
+    if (ap->strength < 25)
+        strength_icon = "network-wireless-signal-weak-symbolic";
+    else if (ap->strength < 50)
+        strength_icon = "network-wireless-signal-ok-symbolic";
+    else if (ap->strength < 75)
+        strength_icon = "network-wireless-signal-good-symbolic";
+    else
+        strength_icon = "network-wireless-signal-excellent-symbolic";
+
+    GtkWidget *signal_icon = gtk_image_new_from_icon_name(strength_icon, GTK_ICON_SIZE_BUTTON);
+    gtk_box_pack_start(GTK_BOX(row_box), signal_icon, FALSE, FALSE, 0);
+
+    GtkWidget *label = gtk_label_new(ap->ssid);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_hexpand(label, TRUE);
+    gtk_box_pack_start(GTK_BOX(row_box), label, TRUE, TRUE, 0);
+
+    if (ap->secured)
+    {
+        GtkWidget *lock_icon = gtk_image_new_from_icon_name("network-wireless-encrypted-symbolic",
+                                                              GTK_ICON_SIZE_BUTTON);
+        gtk_box_pack_start(GTK_BOX(row_box), lock_icon, FALSE, FALSE, 0);
+    }
+
+    if (ap->is_active)
+    {
+        GtkWidget *check_icon = gtk_image_new_from_icon_name("object-select-symbolic",
+                                                               GTK_ICON_SIZE_BUTTON);
+        gtk_box_pack_start(GTK_BOX(row_box), check_icon, FALSE, FALSE, 0);
+    }
+
+    GtkWidget *row = gtk_list_box_row_new();
+    gtk_container_add(GTK_CONTAINER(row), row_box);
+
+    g_object_set_data_full(G_OBJECT(row), "extras-menu-ssid", g_strdup(ap->ssid), g_free);
+    g_object_set_data(G_OBJECT(row), "extras-menu-secured", GINT_TO_POINTER(ap->secured));
+
+    gtk_widget_show_all(row);
+    return row;
+}
+
+/* Called by the network backend whenever the visible Wi-Fi network
+ * list changes (initial scan, periodic rescans, a network
+ * appearing/disappearing, or the active network changing). Clears and
+ * rebuilds the list box from scratch each time -- simpler than
+ * diffing, and scan updates are infrequent enough that this is cheap. */
+static void
+on_network_list_changed(gboolean wifi_available, const ExtrasMenuAccessPoint *aps,
+                         guint count, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
+
+    if (plugin->network_list_box == NULL)
+        return;
+
+    GList *existing_rows = gtk_container_get_children(GTK_CONTAINER(plugin->network_list_box));
+    for (GList *l = existing_rows; l != NULL; l = l->next)
+        gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(existing_rows);
+
+    if (!wifi_available)
+        return;
+
+    for (guint i = 0; i < count; i++)
+    {
+        GtkWidget *row = make_network_row(&aps[i]);
+        gtk_list_box_insert(GTK_LIST_BOX(plugin->network_list_box), row, -1);
+    }
 }
 
 static void extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin);
@@ -84,6 +325,15 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->bluetooth_last_available = FALSE;
     plugin->bluetooth_last_powered = FALSE;
     plugin->bluetooth_has_state = FALSE;
+    plugin->network_pill_button = NULL;
+    plugin->network_pill_label = NULL;
+    plugin->network_pill_icon = NULL;
+    plugin->network_revealer = NULL;
+    plugin->network_list_box = NULL;
+    plugin->network = NULL;
+    plugin->network_last_kind = EXTRAS_MENU_NETWORK_KIND_NONE;
+    plugin->network_last_ip_address = NULL;
+    plugin->network_has_status = FALSE;
 }
 
 /* Moves the dropdown window so it sits next to the panel button,
@@ -367,6 +617,15 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
         extras_menu_bluetooth_free(plugin->bluetooth);
         plugin->bluetooth = NULL;
     }
+
+    if (plugin->network != NULL)
+    {
+        extras_menu_network_free(plugin->network);
+        plugin->network = NULL;
+    }
+
+    g_free(plugin->network_last_ip_address);
+    plugin->network_last_ip_address = NULL;
 }
 
 static void
@@ -401,7 +660,12 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     GtkWidget *content = extras_menu_popover_content_new(&plugin->volume_scale,
                                                            &plugin->volume_icon,
                                                            &plugin->brightness_scale,
-                                                           &plugin->bluetooth_toggle);
+                                                           &plugin->bluetooth_toggle,
+                                                           &plugin->network_pill_button,
+                                                           &plugin->network_pill_label,
+                                                           &plugin->network_pill_icon,
+                                                           &plugin->network_revealer,
+                                                           &plugin->network_list_box);
     gtk_container_add(GTK_CONTAINER(plugin->popover), content);
 
     /* Frame + drop shadow so the window doesn't look like a bare
@@ -476,12 +740,33 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
         }
     }
 
-    /* TEMPORARY: network backend compile/logic test -- see
-     * debug_on_network_list_changed() above. Not stored on plugin or
-     * freed yet since this is a throwaway test; will be replaced by
-     * real UI wiring (plugin->network field, proper free-data
-     * cleanup) once the revealer/list UI exists. */
-    extras_menu_network_new(debug_on_network_list_changed, debug_on_network_status_changed, plugin);
+    /* --- network backend: finds the Wi-Fi/Ethernet devices async,
+     * reports the active connection kind (and Ethernet IP) through
+     * on_network_status_changed, and the visible Wi-Fi network list
+     * through on_network_list_changed. The pill's label/icon track the
+     * connection kind, clicking it reveals the Wi-Fi list (or shows an
+     * Ethernet info dialog), and clicking a network row connects to
+     * it. --- */
+    plugin->network = extras_menu_network_new(on_network_list_changed,
+                                               on_network_status_changed, plugin);
+
+    /* Catch up on any status the backend already reported before
+     * these widgets existed -- see network_has_status in
+     * extras-menu.h for why that can happen. */
+    if (plugin->network_has_status)
+        apply_network_status(plugin, plugin->network_last_kind);
+
+    if (plugin->network_pill_button != NULL)
+    {
+        g_signal_connect(plugin->network_pill_button, "clicked",
+                          G_CALLBACK(on_network_pill_clicked), plugin);
+    }
+
+    if (plugin->network_list_box != NULL)
+    {
+        g_signal_connect(plugin->network_list_box, "row-activated",
+                          G_CALLBACK(on_network_row_activated), plugin);
+    }
 
     g_signal_connect(panel_plugin, "free-data",
                       G_CALLBACK(on_plugin_free_data), plugin);
