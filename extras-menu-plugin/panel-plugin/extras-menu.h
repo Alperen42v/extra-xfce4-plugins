@@ -52,13 +52,16 @@ struct _ExtrasMenuPlugin
     ExtrasMenuBluetooth *bluetooth;
 
     /* Network pill (labeled "Wi-Fi" or "Ethernet" depending on the
-     * active connection) inside the popover, and the backend driving
-     * it. Step 1 (this field set) is just keeping the pill's
-     * label/icon in sync with reality; the Wi-Fi list revealer and
-     * password dialog are a follow-up. */
-    GtkWidget *network_pill_button;
+     * active connection) inside the popover, split into two regions:
+     * network_toggle (icon + label, turns the Wi-Fi radio itself
+     * on/off) and network_expand_button (the small chevron, reveals
+     * network_revealer's Wi-Fi list). See extras_menu_make_split_pill()
+     * in popover.c for why these are separate widgets rather than one
+     * button doing both. */
+    GtkWidget *network_toggle;
     GtkWidget *network_pill_label;
     GtkWidget *network_pill_icon;
+    GtkWidget *network_expand_button;
     GtkWidget *network_revealer;
     GtkWidget *network_list_box;
     ExtrasMenuNetwork *network;
@@ -71,6 +74,12 @@ struct _ExtrasMenuPlugin
     ExtrasMenuNetworkKind network_last_kind;
     gchar *network_last_ip_address;
     gboolean network_has_status;
+
+    /* Same caching idea, for the Wi-Fi radio's own enabled state
+     * (separate from network_last_kind, which is about the active
+     * *connection* rather than whether the radio is even on). */
+    gboolean network_wifi_last_enabled;
+    gboolean network_wifi_has_enabled_state;
 
     /* Last state reported by the Bluetooth backend, cached here in
      * case on_bluetooth_changed() fires before bluetooth_toggle exists
@@ -94,6 +103,10 @@ struct _ExtrasMenuPlugin
 
     /* same idea again, but for the Bluetooth toggle / BlueZ. */
     gboolean updating_bluetooth_from_backend;
+
+    /* same idea again, but for network_toggle (Wi-Fi radio on/off) /
+     * NetworkManager's WirelessEnabled. */
+    gboolean updating_wifi_enabled_from_backend;
 };
 
 struct _ExtrasMenuPluginClass

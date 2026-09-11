@@ -19,18 +19,22 @@ G_BEGIN_DECLS
  * the volume row's icon GtkImage, so the caller can swap it to a
  * "muted" icon at 0%/when muted. bluetooth_toggle hands back the
  * Bluetooth pill's GtkToggleButton so the caller can wire it up to the
- * BlueZ backend the same way. network_pill_button/label/icon hand back
- * the network pill's button, label and icon widgets, so the caller can
- * switch its text/icon between "Wi-Fi" and "Ethernet" as the
- * connection changes, and wire up a click handler (e.g. to toggle
- * network_revealer below). network_revealer hands back the GtkRevealer
- * wrapping the Wi-Fi network list -- collapsed (reveal-child FALSE) by
- * default; the caller decides when to expand it (normally: when the
- * network pill is clicked, and only when in Wi-Fi mode -- Ethernet
- * mode has nothing to list). network_list_box hands back the
- * GtkListBox inside it, ready to be populated with one row per visible
- * access point. Any out-param may be NULL if the caller doesn't need
- * that handle.
+ * BlueZ backend the same way.
+ *
+ * The network pill is split into two independently clickable regions
+ * (see extras_menu_make_split_pill() in popover.c): network_toggle is
+ * the main GtkToggleButton (icon + "Wi-Fi"/"Ethernet" label), meant to
+ * turn the Wi-Fi radio itself on/off; network_expand_button is the
+ * small chevron button that reveals network_revealer's contents.
+ * network_pill_label/icon hand back the label and icon widgets inside
+ * network_toggle, so the caller can update them as the connection kind
+ * changes. network_revealer hands back the GtkRevealer wrapping the
+ * Wi-Fi network list -- collapsed (reveal-child FALSE) by default; the
+ * caller decides when to expand it (normally: when network_expand_button
+ * is clicked, and only when in Wi-Fi mode -- Ethernet mode has nothing
+ * to list). network_list_box hands back the GtkListBox inside it,
+ * ready to be populated with one row per visible access point. Any
+ * out-param may be NULL if the caller doesn't need that handle.
  *
  * The rest of the pill grid (Dark Mode/Aeroplane Mode/Balanced/...)
  * remains purely visual for now; only the sliders, the Bluetooth
@@ -40,9 +44,10 @@ GtkWidget *extras_menu_popover_content_new(GtkWidget **volume_scale,
                                             GtkWidget **volume_icon,
                                             GtkWidget **brightness_scale,
                                             GtkWidget **bluetooth_toggle,
-                                            GtkWidget **network_pill_button,
+                                            GtkWidget **network_toggle,
                                             GtkWidget **network_pill_label,
                                             GtkWidget **network_pill_icon,
+                                            GtkWidget **network_expand_button,
                                             GtkWidget **network_revealer,
                                             GtkWidget **network_list_box);
 

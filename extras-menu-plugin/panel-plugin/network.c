@@ -47,6 +47,9 @@ struct _ExtrasMenuNetwork
 
     ExtrasMenuNetworkStatusChangedFunc status_changed_callback;
     gpointer status_changed_user_data;
+
+    ExtrasMenuNetworkWifiEnabledChangedFunc wifi_enabled_changed_callback;
+    gpointer wifi_enabled_changed_user_data;
 };
 
 /* --- helpers -------------------------------------------------------- */
@@ -587,6 +590,45 @@ request_primary_connection_status(ExtrasMenuNetwork *network)
 }
 
 static void
+on_get_wifi_enabled_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    ExtrasMenuNetwork *network = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL)
+    {
+        g_clear_error(&error);
+        return;
+    }
+
+    GVariant *boxed = NULL;
+    g_variant_get(reply, "(v)", &boxed);
+    gboolean enabled = g_variant_get_boolean(boxed);
+    g_variant_unref(boxed);
+    g_variant_unref(reply);
+
+    if (network->wifi_enabled_changed_callback != NULL)
+        network->wifi_enabled_changed_callback(enabled, network->wifi_enabled_changed_user_data);
+}
+
+static void
+request_wifi_enabled_state(ExtrasMenuNetwork *network)
+{
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        NM_OBJ_PATH,
+        "org.freedesktop.DBus.Properties",
+        "Get",
+        g_variant_new("(ss)", NM_IFACE, "WirelessEnabled"),
+        G_VARIANT_TYPE("(v)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, NULL,
+        on_get_wifi_enabled_finished, network);
+}
+
+static void
 on_nm_properties_changed(GDBusConnection *connection, const gchar *sender_name,
                           const gchar *object_path, const gchar *interface_name,
                           const gchar *signal_name, GVariant *parameters,
@@ -600,7 +642,11 @@ on_nm_properties_changed(GDBusConnection *connection, const gchar *sender_name,
     (void) signal_name;
     (void) parameters;
 
+    /* Either PrimaryConnection or WirelessEnabled (or both, or
+     * unrelated properties) may have changed -- re-check both rather
+     * than inspecting parameters to figure out which. Cheap enough. */
     request_primary_connection_status(network);
+    request_wifi_enabled_state(network);
 }
 
 static void
@@ -613,6 +659,7 @@ start_primary_connection_tracking(ExtrasMenuNetwork *network)
         on_nm_properties_changed, network, NULL);
 
     request_primary_connection_status(network);
+    request_wifi_enabled_state(network);
 }
 
 /* --- finding the first Wi-Fi device, one device at a time --------------- */
@@ -878,6 +925,7 @@ build_connection_settings(const gchar *ssid, const gchar *password)
 ExtrasMenuNetwork *
 extras_menu_network_new(ExtrasMenuNetworkListChangedFunc list_changed_callback,
                          ExtrasMenuNetworkStatusChangedFunc status_changed_callback,
+                         ExtrasMenuNetworkWifiEnabledChangedFunc wifi_enabled_changed_callback,
                          gpointer user_data)
 {
     ExtrasMenuNetwork *network = g_new0(ExtrasMenuNetwork, 1);
@@ -885,12 +933,34 @@ extras_menu_network_new(ExtrasMenuNetworkListChangedFunc list_changed_callback,
     network->list_changed_user_data = user_data;
     network->status_changed_callback = status_changed_callback;
     network->status_changed_user_data = user_data;
+    network->wifi_enabled_changed_callback = wifi_enabled_changed_callback;
+    network->wifi_enabled_changed_user_data = user_data;
     network->wifi_device_path = NULL;
     network->watched_ip4config_path = NULL;
 
     g_bus_get(G_BUS_TYPE_SYSTEM, NULL, on_bus_get_finished, network);
 
     return network;
+}
+
+void
+extras_menu_network_set_wifi_enabled(ExtrasMenuNetwork *network, gboolean enabled)
+{
+    if (network == NULL || network->system_bus == NULL)
+        return;
+
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        NM_OBJ_PATH,
+        "org.freedesktop.DBus.Properties",
+        "Set",
+        g_variant_new("(ssv)", NM_IFACE, "WirelessEnabled", g_variant_new_boolean(enabled)),
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, NULL,
+        NULL, NULL); /* fire-and-forget: PropertiesChanged brings the
+                       * confirmed state back to us either way */
 }
 
 void

@@ -60,14 +60,52 @@ on_network_status_changed(ExtrasMenuNetworkKind kind, const gchar *ip_address, g
     apply_network_status(plugin, kind);
 }
 
-/* Fired when the "Wi-Fi"/"Ethernet" pill is clicked. Behavior depends
- * on the current connection kind: in Wi-Fi mode, toggles the network
- * list revealer open/closed; in Ethernet mode (or no connection),
- * there's no list to show, so a small info dialog with the IP address
- * is shown instead (Ethernet has nothing to "choose" the way Wi-Fi
- * networks do). */
+/* Called by the network backend once we know the Wi-Fi radio's
+ * enabled state, and again whenever it changes -- whether we caused it
+ * via on_network_toggle_clicked() below or something else did (a
+ * hardware kill switch, another app, nmcli). Keeps network_toggle's
+ * checked state in sync with reality. */
 static void
-on_network_pill_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
+on_wifi_enabled_changed(gboolean enabled, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
+
+    plugin->network_wifi_last_enabled = enabled;
+    plugin->network_wifi_has_enabled_state = TRUE;
+
+    if (plugin->network_toggle == NULL)
+        return;
+
+    /* See on_audio_changed() for why this flag exists -- same
+     * feedback-loop concern, this time against NetworkManager's
+     * WirelessEnabled. */
+    plugin->updating_wifi_enabled_from_backend = TRUE;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(plugin->network_toggle), enabled);
+    plugin->updating_wifi_enabled_from_backend = FALSE;
+}
+
+/* Fired when the main part of the network pill (icon + label) is
+ * clicked -- turns the Wi-Fi radio itself on/off, independent of any
+ * specific connection. Does nothing if the radio state hasn't been
+ * heard from the backend yet (network_wifi_has_enabled_state FALSE),
+ * since we wouldn't know what "on/off" even means at that point. */
+static void
+on_network_toggle_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
+{
+    if (plugin->updating_wifi_enabled_from_backend)
+        return;
+
+    extras_menu_network_set_wifi_enabled(plugin->network, gtk_toggle_button_get_active(button));
+}
+
+/* Fired when the small chevron button on the network pill is clicked.
+ * Behavior depends on the current connection kind: in Wi-Fi mode,
+ * toggles the network list revealer open/closed; in Ethernet mode (or
+ * no connection), there's no list to show, so a small info dialog with
+ * the IP address is shown instead (Ethernet has nothing to "choose"
+ * the way Wi-Fi networks do). */
+static void
+on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
 {
     (void) button;
 
@@ -325,15 +363,19 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->bluetooth_last_available = FALSE;
     plugin->bluetooth_last_powered = FALSE;
     plugin->bluetooth_has_state = FALSE;
-    plugin->network_pill_button = NULL;
+    plugin->network_toggle = NULL;
     plugin->network_pill_label = NULL;
     plugin->network_pill_icon = NULL;
+    plugin->network_expand_button = NULL;
     plugin->network_revealer = NULL;
     plugin->network_list_box = NULL;
     plugin->network = NULL;
     plugin->network_last_kind = EXTRAS_MENU_NETWORK_KIND_NONE;
     plugin->network_last_ip_address = NULL;
     plugin->network_has_status = FALSE;
+    plugin->network_wifi_last_enabled = FALSE;
+    plugin->network_wifi_has_enabled_state = FALSE;
+    plugin->updating_wifi_enabled_from_backend = FALSE;
 }
 
 /* Moves the dropdown window so it sits next to the panel button,
@@ -661,9 +703,10 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                                                            &plugin->volume_icon,
                                                            &plugin->brightness_scale,
                                                            &plugin->bluetooth_toggle,
-                                                           &plugin->network_pill_button,
+                                                           &plugin->network_toggle,
                                                            &plugin->network_pill_label,
                                                            &plugin->network_pill_icon,
+                                                           &plugin->network_expand_button,
                                                            &plugin->network_revealer,
                                                            &plugin->network_list_box);
     gtk_container_add(GTK_CONTAINER(plugin->popover), content);
@@ -742,24 +785,40 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 
     /* --- network backend: finds the Wi-Fi/Ethernet devices async,
      * reports the active connection kind (and Ethernet IP) through
-     * on_network_status_changed, and the visible Wi-Fi network list
-     * through on_network_list_changed. The pill's label/icon track the
-     * connection kind, clicking it reveals the Wi-Fi list (or shows an
-     * Ethernet info dialog), and clicking a network row connects to
-     * it. --- */
+     * on_network_status_changed, the Wi-Fi radio's own on/off state
+     * through on_wifi_enabled_changed, and the visible Wi-Fi network
+     * list through on_network_list_changed. The pill's label/icon
+     * track the connection kind; clicking the main toggle turns Wi-Fi
+     * on/off, clicking the chevron reveals the Wi-Fi list (or shows an
+     * Ethernet info dialog); clicking a network row connects to it. --- */
     plugin->network = extras_menu_network_new(on_network_list_changed,
-                                               on_network_status_changed, plugin);
+                                               on_network_status_changed,
+                                               on_wifi_enabled_changed, plugin);
 
     /* Catch up on any status the backend already reported before
-     * these widgets existed -- see network_has_status in
-     * extras-menu.h for why that can happen. */
+     * these widgets existed -- see network_has_status/
+     * network_wifi_has_enabled_state in extras-menu.h for why that can
+     * happen. */
     if (plugin->network_has_status)
         apply_network_status(plugin, plugin->network_last_kind);
-
-    if (plugin->network_pill_button != NULL)
+    if (plugin->network_wifi_has_enabled_state && plugin->network_toggle != NULL)
     {
-        g_signal_connect(plugin->network_pill_button, "clicked",
-                          G_CALLBACK(on_network_pill_clicked), plugin);
+        plugin->updating_wifi_enabled_from_backend = TRUE;
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(plugin->network_toggle),
+                                      plugin->network_wifi_last_enabled);
+        plugin->updating_wifi_enabled_from_backend = FALSE;
+    }
+
+    if (plugin->network_toggle != NULL)
+    {
+        g_signal_connect(plugin->network_toggle, "toggled",
+                          G_CALLBACK(on_network_toggle_clicked), plugin);
+    }
+
+    if (plugin->network_expand_button != NULL)
+    {
+        g_signal_connect(plugin->network_expand_button, "clicked",
+                          G_CALLBACK(on_network_expand_clicked), plugin);
     }
 
     if (plugin->network_list_box != NULL)

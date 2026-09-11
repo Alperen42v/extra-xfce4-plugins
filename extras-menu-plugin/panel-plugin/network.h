@@ -77,13 +77,28 @@ typedef void (*ExtrasMenuNetworkConnectResultFunc)(gboolean success,
                                                      const gchar *error_message,
                                                      gpointer user_data);
 
-/* status_changed_callback may be NULL if the caller only cares about
- * the Wi-Fi access point list and not the overall Ethernet/Wi-Fi
- * status (unlikely, but kept optional for symmetry with the other
- * backends' constructors). */
+/* Fired once we know the Wi-Fi radio's enabled state (shortly after
+ * extras_menu_network_new() returns), and again whenever it changes --
+ * whether we caused it via extras_menu_network_set_wifi_enabled() or
+ * something else did (a hardware kill switch, another app, nmcli).
+ * This tracks NetworkManager's global WirelessEnabled property, i.e.
+ * the radio itself -- separate from whether we're actually connected
+ * to a network. */
+typedef void (*ExtrasMenuNetworkWifiEnabledChangedFunc)(gboolean enabled, gpointer user_data);
+
+/* status_changed_callback and wifi_enabled_changed_callback may be
+ * NULL if the caller doesn't need them (unlikely in practice, but kept
+ * optional for symmetry with the other backends' constructors). */
 ExtrasMenuNetwork *extras_menu_network_new(ExtrasMenuNetworkListChangedFunc list_changed_callback,
                                             ExtrasMenuNetworkStatusChangedFunc status_changed_callback,
+                                            ExtrasMenuNetworkWifiEnabledChangedFunc wifi_enabled_changed_callback,
                                             gpointer user_data);
+
+/* Turns the Wi-Fi radio itself on/off (NetworkManager's
+ * WirelessEnabled property) -- independent of any specific network
+ * connection. Fire-and-forget: the resulting state comes back through
+ * wifi_enabled_changed_callback. */
+void extras_menu_network_set_wifi_enabled(ExtrasMenuNetwork *network, gboolean enabled);
 
 /* Asks NetworkManager to rescan for networks. Fire-and-forget --
  * results (if any new networks are found) arrive through the normal

@@ -25,6 +25,46 @@ static const gchar *EXTRAS_MENU_CSS =
     "}"
     ".extras-menu-popover {"
     "  padding: 10px;"
+    "}"
+    /* Split pill (network toggle + expand chevron): the outer box just
+     * clips its two children into one pill-shaped silhouette. The
+     * children's own halves of the border-radius (below) create the
+     * combined rounded-rect look, so this only needs overflow
+     * clipping, not a border-radius of its own. */
+    ".extras-menu-split-pill {"
+    "  border-radius: 14px;"
+    "}"
+    /* Left half: rounded on the left, square on the right where it
+     * meets the divider. */
+    ".extras-menu-split-pill-main {"
+    "  border-top-left-radius: 14px;"
+    "  border-bottom-left-radius: 14px;"
+    "  border-top-right-radius: 0;"
+    "  border-bottom-right-radius: 0;"
+    "  padding: 10px 14px;"
+    "  min-height: 28px;"
+    "}"
+    /* The divider itself: intentionally faint (not a full-contrast
+     * border) so it reads as a soft seam between the two halves rather
+     * than a hard line competing with the pill's own outline. Sized
+     * down from the pill's full height so it doesn't touch the top/
+     * bottom edges. */
+    ".extras-menu-split-pill-divider {"
+    "  min-height: 16px;"
+    "  margin-top: 6px;"
+    "  margin-bottom: 6px;"
+    "  opacity: 0.25;"
+    "}"
+    /* Right half: rounded on the right, square on the left, narrower
+     * than the main button since it only holds a chevron glyph. */
+    ".extras-menu-split-pill-expand {"
+    "  border-top-right-radius: 14px;"
+    "  border-bottom-right-radius: 14px;"
+    "  border-top-left-radius: 0;"
+    "  border-bottom-left-radius: 0;"
+    "  padding: 10px 10px;"
+    "  min-height: 28px;"
+    "  min-width: 0;"
     "}";
 
 static void
@@ -72,41 +112,99 @@ extras_menu_make_pill_toggle(const gchar *icon_name,
     return button;
 }
 
-/* A pill row with a chevron on the right, used for entries that open a
- * submenu (e.g. the network pill's Wi-Fi list, or the quality-preset
- * row next to Balanced in the mockup). out_label and out_icon (both
- * optional) hand back the label and icon widgets so callers can
- * update them dynamically (e.g. the network pill switching between
- * "Wi-Fi" and "Ethernet" as the connection changes). */
+/* A pill split into two independently clickable regions, separated by
+ * a subtle vertical divider: a main toggle button on the left (icon +
+ * label, e.g. turning Wi-Fi on/off) and a small chevron button on the
+ * right (e.g. revealing the network list) -- used for the network
+ * pill, where "turn Wi-Fi on" and "show me the network list" are
+ * different actions the mockup's single ">" glyph doesn't distinguish
+ * between. Returns the outer container (ready to place in the grid);
+ * out_main_toggle, out_label, out_icon and out_expand_button (all
+ * optional) hand back the pieces callers need to wire up or update
+ * dynamically. */
 static GtkWidget *
-extras_menu_make_pill_expander(const gchar *icon_name,
-                                const gchar *label_text,
-                                GtkWidget **out_label,
-                                GtkWidget **out_icon)
+extras_menu_make_split_pill(const gchar *icon_name,
+                             const gchar *label_text,
+                             GtkWidget **out_main_toggle,
+                             GtkWidget **out_label,
+                             GtkWidget **out_icon,
+                             GtkWidget **out_expand_button)
+{
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    extras_menu_apply_css(outer);
+    gtk_style_context_add_class(gtk_widget_get_style_context(outer), "extras-menu-split-pill");
+
+    /* --- left: main toggle (icon + label) --- */
+    GtkWidget *main_toggle = gtk_toggle_button_new();
+    extras_menu_apply_css(main_toggle);
+    gtk_style_context_add_class(gtk_widget_get_style_context(main_toggle),
+                                 "extras-menu-split-pill-main");
+    gtk_widget_set_hexpand(main_toggle, TRUE);
+
+    GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *icon = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
+    GtkWidget *label = gtk_label_new(label_text);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+    gtk_widget_set_hexpand(label, TRUE);
+
+    gtk_box_pack_start(GTK_BOX(main_box), icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(main_box), label, TRUE, TRUE, 0);
+    gtk_container_add(GTK_CONTAINER(main_toggle), main_box);
+
+    /* --- subtle divider between the two regions --- */
+    GtkWidget *divider = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+    extras_menu_apply_css(divider);
+    gtk_style_context_add_class(gtk_widget_get_style_context(divider),
+                                 "extras-menu-split-pill-divider");
+
+    /* --- right: small chevron button, expands the network list --- */
+    GtkWidget *expand_button = gtk_button_new();
+    extras_menu_apply_css(expand_button);
+    gtk_style_context_add_class(gtk_widget_get_style_context(expand_button),
+                                 "extras-menu-split-pill-expand");
+
+    GtkWidget *chevron = gtk_image_new_from_icon_name("pan-end-symbolic", GTK_ICON_SIZE_BUTTON);
+    gtk_container_add(GTK_CONTAINER(expand_button), chevron);
+
+    gtk_box_pack_start(GTK_BOX(outer), main_toggle, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), divider, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), expand_button, FALSE, FALSE, 0);
+
+    if (out_main_toggle != NULL)
+        *out_main_toggle = main_toggle;
+    if (out_label != NULL)
+        *out_label = label;
+    if (out_icon != NULL)
+        *out_icon = icon;
+    if (out_expand_button != NULL)
+        *out_expand_button = expand_button;
+
+    return outer;
+}
+
+/* Simple single-button pill with a trailing chevron, no split
+ * click-regions -- used for placeholder entries like "quality" that
+ * don't yet have real behavior wired up (unlike the network pill,
+ * which needs the on/off vs. expand-list distinction from
+ * extras_menu_make_split_pill above). */
+static GtkWidget *
+extras_menu_make_pill_expander(const gchar *icon_name, const gchar *label_text)
 {
     GtkWidget *button = gtk_button_new();
     extras_menu_apply_css(button);
-
-    GtkStyleContext *ctx = gtk_widget_get_style_context(button);
-    gtk_style_context_add_class(ctx, "extras-menu-pill-wide");
+    gtk_style_context_add_class(gtk_widget_get_style_context(button), "extras-menu-pill-wide");
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *icon = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
     GtkWidget *label = gtk_label_new(label_text);
     gtk_label_set_xalign(GTK_LABEL(label), 0.0);
-    GtkWidget *chevron = gtk_image_new_from_icon_name("pan-end-symbolic",
-                                                        GTK_ICON_SIZE_BUTTON);
+    GtkWidget *chevron = gtk_image_new_from_icon_name("pan-end-symbolic", GTK_ICON_SIZE_BUTTON);
 
     gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), label, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(box), chevron, FALSE, FALSE, 0);
 
     gtk_container_add(GTK_CONTAINER(button), box);
-
-    if (out_label != NULL)
-        *out_label = label;
-    if (out_icon != NULL)
-        *out_icon = icon;
 
     return button;
 }
@@ -146,9 +244,9 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWi
 GtkWidget *
 extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_icon,
                                  GtkWidget **brightness_scale, GtkWidget **bluetooth_toggle,
-                                 GtkWidget **network_pill_button, GtkWidget **network_pill_label,
-                                 GtkWidget **network_pill_icon, GtkWidget **network_revealer,
-                                 GtkWidget **network_list_box)
+                                 GtkWidget **network_toggle, GtkWidget **network_pill_label,
+                                 GtkWidget **network_pill_icon, GtkWidget **network_expand_button,
+                                 GtkWidget **network_revealer, GtkWidget **network_list_box)
 {
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     extras_menu_apply_css(root);
@@ -183,16 +281,21 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
 
     GtkWidget *network_label = NULL;
     GtkWidget *network_icon = NULL;
-    GtkWidget *wired = extras_menu_make_pill_expander("network-wired-symbolic", "Wi-Fi",
-                                                        &network_label, &network_icon);
-    if (network_pill_button != NULL)
-        *network_pill_button = wired;
+    GtkWidget *network_main_toggle = NULL;
+    GtkWidget *network_expand = NULL;
+    GtkWidget *wired = extras_menu_make_split_pill("network-wired-symbolic", "Wi-Fi",
+                                                     &network_main_toggle, &network_label,
+                                                     &network_icon, &network_expand);
+    if (network_toggle != NULL)
+        *network_toggle = network_main_toggle;
     if (network_pill_label != NULL)
         *network_pill_label = network_label;
     if (network_pill_icon != NULL)
         *network_pill_icon = network_icon;
+    if (network_expand_button != NULL)
+        *network_expand_button = network_expand;
 
-    GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "", NULL, NULL);
+    GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "");
 
     /* Starts unchecked regardless of the mockup's default -- the real
      * state comes from the Bluetooth backend shortly after the
