@@ -11,6 +11,9 @@
 #define NM_ACCESS_POINT_IFACE    "org.freedesktop.NetworkManager.AccessPoint"
 #define NM_IP4CONFIG_IFACE       "org.freedesktop.NetworkManager.IP4Config"
 #define NM_CONNECTION_ACTIVE_IFACE "org.freedesktop.NetworkManager.Connection.Active"
+#define NM_SETTINGS_OBJ_PATH     "/org/freedesktop/NetworkManager/Settings"
+#define NM_SETTINGS_IFACE        "org.freedesktop.NetworkManager.Settings"
+#define NM_SETTINGS_CONNECTION_IFACE "org.freedesktop.NetworkManager.Settings.Connection"
 
 #define NM_DEVICE_TYPE_ETHERNET 1
 #define NM_DEVICE_TYPE_WIFI     2
@@ -872,11 +875,10 @@ on_connect_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 }
 
 /* Builds a minimal NetworkManager connection settings dict for a given
- * SSID/password, suitable for AddAndActivateConnection. We always
- * build a fresh profile rather than trying to detect and reuse an
- * existing saved one -- NM's own matching heuristics vary across
- * versions, so this keeps behavior predictable at the cost of not
- * reusing a previously-saved password automatically. */
+ * SSID/password, suitable for AddAndActivateConnection. Only used as a
+ * fallback when no existing saved profile for this SSID was found --
+ * see find_existing_connection_for_ssid() below, which is tried
+ * first. */
 static GVariant *
 build_connection_settings(const gchar *ssid, const gchar *password)
 {
@@ -918,6 +920,180 @@ build_connection_settings(const gchar *ssid, const gchar *password)
     }
 
     return g_variant_builder_end(&connection_builder);
+}
+
+/* --- finding an already-saved connection profile for an SSID --------- */
+
+typedef struct
+{
+    ExtrasMenuNetwork *network;
+    gchar *ssid;
+    gchar *password; /* only used if no existing profile is found */
+    ExtrasMenuNetworkConnectResultFunc result_callback;
+    gpointer result_user_data;
+
+    gchar **profile_paths; /* NULL-terminated */
+    guint index;
+} FindProfileCtx;
+
+static void find_profile_check_next(FindProfileCtx *ctx);
+
+static void
+free_find_profile_ctx(FindProfileCtx *ctx)
+{
+    g_free(ctx->ssid);
+    g_free(ctx->password);
+    g_strfreev(ctx->profile_paths);
+    g_free(ctx);
+}
+
+/* Once we know whether an existing profile matches (or we've run out
+ * of profiles to check), either activates the found one or falls back
+ * to creating+activating a fresh one with build_connection_settings(). */
+static void
+proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
+{
+    ConnectResultCtx *result_ctx = g_new0(ConnectResultCtx, 1);
+    result_ctx->callback = ctx->result_callback;
+    result_ctx->user_data = ctx->result_user_data;
+
+    if (existing_profile_path != NULL)
+    {
+        /* Reactivate the saved profile as-is -- its stored password
+         * (if any) is used by NetworkManager itself, so the user isn't
+         * prompted again for a network they've already connected to
+         * before. */
+        g_dbus_connection_call(
+            ctx->network->system_bus,
+            NM_BUS_NAME,
+            NM_OBJ_PATH,
+            NM_IFACE,
+            "ActivateConnection",
+            g_variant_new("(ooo)", existing_profile_path, ctx->network->wifi_device_path, "/"),
+            G_VARIANT_TYPE("(o)"),
+            G_DBUS_CALL_FLAGS_NONE,
+            -1, NULL,
+            on_connect_finished, result_ctx);
+    }
+    else
+    {
+        GVariant *connection_settings = build_connection_settings(ctx->ssid, ctx->password);
+
+        g_dbus_connection_call(
+            ctx->network->system_bus,
+            NM_BUS_NAME,
+            NM_OBJ_PATH,
+            NM_IFACE,
+            "AddAndActivateConnection",
+            g_variant_new("(@a{sa{sv}}oo)", connection_settings, ctx->network->wifi_device_path, "/"),
+            G_VARIANT_TYPE("(oo)"),
+            G_DBUS_CALL_FLAGS_NONE,
+            -1, NULL,
+            on_connect_finished, result_ctx);
+    }
+
+    free_find_profile_ctx(ctx);
+}
+
+static void
+on_profile_settings_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    FindProfileCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    gboolean matches = FALSE;
+
+    if (reply != NULL)
+    {
+        GVariant *settings = NULL;
+        g_variant_get(reply, "(@a{sa{sv}})", &settings);
+
+        GVariant *wifi_section = g_variant_lookup_value(settings, "802-11-wireless", G_VARIANT_TYPE("a{sv}"));
+        if (wifi_section != NULL)
+        {
+            GVariant *ssid_v = g_variant_lookup_value(wifi_section, "ssid", G_VARIANT_TYPE("ay"));
+            if (ssid_v != NULL)
+            {
+                gchar *found_ssid = decode_ssid(ssid_v);
+                matches = (g_strcmp0(found_ssid, ctx->ssid) == 0);
+                g_free(found_ssid);
+                g_variant_unref(ssid_v);
+            }
+            g_variant_unref(wifi_section);
+        }
+
+        g_variant_unref(settings);
+        g_variant_unref(reply);
+    }
+    g_clear_error(&error);
+
+    if (matches)
+    {
+        proceed_with_connect(ctx, ctx->profile_paths[ctx->index]);
+        return;
+    }
+
+    ctx->index++;
+    find_profile_check_next(ctx);
+}
+
+static void
+find_profile_check_next(FindProfileCtx *ctx)
+{
+    if (ctx->profile_paths[ctx->index] == NULL)
+    {
+        /* No existing profile matched -- create a new one. */
+        proceed_with_connect(ctx, NULL);
+        return;
+    }
+
+    g_dbus_connection_call(
+        ctx->network->system_bus,
+        NM_BUS_NAME,
+        ctx->profile_paths[ctx->index],
+        NM_SETTINGS_CONNECTION_IFACE,
+        "GetSettings",
+        NULL,
+        G_VARIANT_TYPE("(a{sa{sv}})"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, NULL,
+        on_profile_settings_finished, ctx);
+}
+
+static void
+on_list_connections_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    FindProfileCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL)
+    {
+        /* Couldn't even list profiles -- fall back to creating a new
+         * one rather than failing the connect attempt outright. */
+        g_clear_error(&error);
+        proceed_with_connect(ctx, NULL);
+        return;
+    }
+
+    GVariant *paths_v = NULL;
+    g_variant_get(reply, "(@ao)", &paths_v);
+
+    guint n = (guint) g_variant_n_children(paths_v);
+    ctx->profile_paths = g_new0(gchar *, n + 1); /* NULL-terminated */
+    for (guint i = 0; i < n; i++)
+    {
+        GVariant *child = g_variant_get_child_value(paths_v, i);
+        ctx->profile_paths[i] = g_variant_dup_string(child, NULL);
+        g_variant_unref(child);
+    }
+
+    g_variant_unref(paths_v);
+    g_variant_unref(reply);
+
+    ctx->index = 0;
+    find_profile_check_next(ctx);
 }
 
 /* --- public API ------------------------------------------------------------ */
@@ -997,23 +1173,30 @@ extras_menu_network_connect(ExtrasMenuNetwork *network,
         return;
     }
 
-    GVariant *connection_settings = build_connection_settings(ssid, password);
-
-    ConnectResultCtx *ctx = g_new0(ConnectResultCtx, 1);
-    ctx->callback = result_callback;
-    ctx->user_data = result_user_data;
+    /* Look for an already-saved profile for this SSID first, so
+     * reconnecting to a network we've used before (including the one
+     * we're currently on) doesn't prompt for a password again --
+     * NetworkManager reuses the profile's stored credentials. Falls
+     * back to creating a fresh profile (see build_connection_settings)
+     * if none is found. */
+    FindProfileCtx *ctx = g_new0(FindProfileCtx, 1);
+    ctx->network = network;
+    ctx->ssid = g_strdup(ssid);
+    ctx->password = password != NULL ? g_strdup(password) : NULL;
+    ctx->result_callback = result_callback;
+    ctx->result_user_data = result_user_data;
 
     g_dbus_connection_call(
         network->system_bus,
         NM_BUS_NAME,
-        NM_OBJ_PATH,
-        NM_IFACE,
-        "AddAndActivateConnection",
-        g_variant_new("(@a{sa{sv}}oo)", connection_settings, network->wifi_device_path, "/"),
-        G_VARIANT_TYPE("(oo)"),
+        NM_SETTINGS_OBJ_PATH,
+        NM_SETTINGS_IFACE,
+        "ListConnections",
+        NULL,
+        G_VARIANT_TYPE("(ao)"),
         G_DBUS_CALL_FLAGS_NONE,
         -1, NULL,
-        on_connect_finished, ctx);
+        on_list_connections_finished, ctx);
 }
 
 void

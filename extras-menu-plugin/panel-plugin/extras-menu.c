@@ -147,20 +147,38 @@ on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
     gtk_widget_destroy(dialog);
 }
 
+static void prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWindow *parent_window);
+
 /* Fired once extras_menu_network_connect() (below) finishes, whether
- * it succeeded or not. On failure, shows the error in a simple message
- * dialog -- good enough for now; a more polished inline error in the
- * list row is a possible future improvement. */
+ * it succeeded or not.
+ *
+ * On failure: if the network we just tried is secured and we don't
+ * yet have a password for it in this attempt (i.e. this was the
+ * initial no-password try from on_network_row_activated(), looking
+ * for a saved profile), fall back to prompting for a password rather
+ * than just showing an error -- this is what lets
+ * on_network_row_activated() try silently first and only bother the
+ * user if that didn't work. If the network is open, or we already
+ * tried with a user-provided password and that failed too, show the
+ * error instead of looping back into another password prompt. */
 static void
 on_connect_result(gboolean success, const gchar *error_message, gpointer user_data)
 {
-    GtkWindow *parent = GTK_WINDOW(user_data);
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
 
     if (success)
         return;
 
+    if (plugin->pending_connect_secured && !plugin->pending_connect_password_was_tried)
+    {
+        plugin->pending_connect_password_was_tried = TRUE;
+        prompt_password_and_connect(plugin, plugin->pending_connect_ssid,
+                                     GTK_WINDOW(plugin->popover));
+        return;
+    }
+
     GtkWidget *dialog = gtk_message_dialog_new(
-        parent, GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_WINDOW(plugin->popover), GTK_DIALOG_DESTROY_WITH_PARENT,
         GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
         "Couldn't connect to the network.");
     gtk_message_dialog_format_secondary_text(
@@ -210,17 +228,22 @@ prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWind
     {
         const gchar *password = gtk_entry_get_text(GTK_ENTRY(entry));
         extras_menu_network_connect(plugin->network, ssid, password,
-                                     on_connect_result, parent_window);
+                                     on_connect_result, plugin);
     }
 
     gtk_widget_destroy(dialog);
 }
 
 /* Fired when the user clicks a network row in the Wi-Fi list. Open
- * networks connect immediately; secured ones prompt for a password
- * first. Already-active networks are not re-clicked in practice since
- * they're visually marked instead of being made clickable-looking, but
- * clicking one anyway would simply reconnect harmlessly. */
+ * networks connect immediately. Secured networks also try to connect
+ * immediately first -- extras_menu_network_connect() itself looks for
+ * an already-saved profile (which includes the password) before
+ * asking us for one, so a network we've connected to before (or are
+ * currently on) reconnects without any prompt. Only if that attempt
+ * fails (no saved profile existed, so NetworkManager had nothing to
+ * authenticate with) do we fall back to prompting for a password --
+ * see on_connect_result() below, which is where that fallback
+ * actually happens. */
 static void
 on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user_data)
 {
@@ -233,12 +256,17 @@ on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user
     if (ssid == NULL)
         return;
 
-    GtkWindow *parent_window = GTK_WINDOW(plugin->popover);
+    /* Stash whether this network is secured on the plugin, keyed by
+     * the SSID we're attempting -- on_connect_result() needs this to
+     * decide whether a failure should fall back to a password prompt
+     * (secured network, no saved profile) or just show an error
+     * (open network, something else went wrong). */
+    g_free(plugin->pending_connect_ssid);
+    plugin->pending_connect_ssid = g_strdup(ssid);
+    plugin->pending_connect_secured = secured;
+    plugin->pending_connect_password_was_tried = FALSE;
 
-    if (secured)
-        prompt_password_and_connect(plugin, ssid, parent_window);
-    else
-        extras_menu_network_connect(plugin->network, ssid, NULL, on_connect_result, parent_window);
+    extras_menu_network_connect(plugin->network, ssid, NULL, on_connect_result, plugin);
 }
 
 /* Builds one GtkListBoxRow for an access point: signal-strength icon,
@@ -280,9 +308,9 @@ make_network_row(const ExtrasMenuAccessPoint *ap)
 
     if (ap->is_active)
     {
-        GtkWidget *check_icon = gtk_image_new_from_icon_name("object-select-symbolic",
-                                                               GTK_ICON_SIZE_BUTTON);
-        gtk_box_pack_start(GTK_BOX(row_box), check_icon, FALSE, FALSE, 0);
+        GtkWidget *connected_label = gtk_label_new("Connected");
+        gtk_style_context_add_class(gtk_widget_get_style_context(connected_label), "dim-label");
+        gtk_box_pack_start(GTK_BOX(row_box), connected_label, FALSE, FALSE, 0);
     }
 
     GtkWidget *row = gtk_list_box_row_new();
@@ -375,6 +403,9 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->network_has_status = FALSE;
     plugin->network_wifi_last_enabled = FALSE;
     plugin->network_wifi_has_enabled_state = FALSE;
+    plugin->pending_connect_ssid = NULL;
+    plugin->pending_connect_secured = FALSE;
+    plugin->pending_connect_password_was_tried = FALSE;
     plugin->updating_wifi_enabled_from_backend = FALSE;
 }
 
@@ -668,6 +699,9 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 
     g_free(plugin->network_last_ip_address);
     plugin->network_last_ip_address = NULL;
+
+    g_free(plugin->pending_connect_ssid);
+    plugin->pending_connect_ssid = NULL;
 }
 
 static void

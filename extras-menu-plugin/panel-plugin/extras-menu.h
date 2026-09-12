@@ -81,6 +81,15 @@ struct _ExtrasMenuPlugin
     gboolean network_wifi_last_enabled;
     gboolean network_wifi_has_enabled_state;
 
+    /* Tracks the network currently being connected to, so
+     * on_connect_result() knows whether a failure should fall back to
+     * a password prompt (see on_network_row_activated() in
+     * extras-menu.c for the full flow: try without a password first,
+     * only prompt if that fails and the network is secured). */
+    gchar *pending_connect_ssid;
+    gboolean pending_connect_secured;
+    gboolean pending_connect_password_was_tried;
+
     /* Last state reported by the Bluetooth backend, cached here in
      * case on_bluetooth_changed() fires before bluetooth_toggle exists
      * yet (observed in practice: GDBus can call back synchronously in
