@@ -62,6 +62,7 @@ struct _ExtrasMenuPlugin
     GtkWidget *network_pill_label;
     GtkWidget *network_pill_icon;
     GtkWidget *network_expand_button;
+    GtkWidget *network_expand_chevron;
     GtkWidget *network_revealer;
     GtkWidget *network_list_box;
     ExtrasMenuNetwork *network;

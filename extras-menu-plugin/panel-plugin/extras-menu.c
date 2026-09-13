@@ -115,12 +115,20 @@ on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
             return;
 
         gboolean currently_open = gtk_revealer_get_reveal_child(GTK_REVEALER(plugin->network_revealer));
-        gtk_revealer_set_reveal_child(GTK_REVEALER(plugin->network_revealer), !currently_open);
+        gboolean will_open = !currently_open;
+        gtk_revealer_set_reveal_child(GTK_REVEALER(plugin->network_revealer), will_open);
+
+        if (plugin->network_expand_chevron != NULL)
+        {
+            gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_expand_chevron),
+                                          will_open ? "pan-down-symbolic" : "pan-end-symbolic",
+                                          GTK_ICON_SIZE_BUTTON);
+        }
 
         /* Ask for a fresh scan each time the list is opened, so it's
          * not showing stale results from whenever the dropdown last
          * happened to scan. */
-        if (!currently_open)
+        if (will_open)
             extras_menu_network_rescan(plugin->network);
 
         return;
@@ -395,6 +403,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->network_pill_label = NULL;
     plugin->network_pill_icon = NULL;
     plugin->network_expand_button = NULL;
+    plugin->network_expand_chevron = NULL;
     plugin->network_revealer = NULL;
     plugin->network_list_box = NULL;
     plugin->network = NULL;
@@ -741,6 +750,7 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                                                            &plugin->network_pill_label,
                                                            &plugin->network_pill_icon,
                                                            &plugin->network_expand_button,
+                                                           &plugin->network_expand_chevron,
                                                            &plugin->network_revealer,
                                                            &plugin->network_list_box);
     gtk_container_add(GTK_CONTAINER(plugin->popover), content);

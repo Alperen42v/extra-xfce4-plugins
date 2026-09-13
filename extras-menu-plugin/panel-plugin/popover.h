@@ -26,6 +26,10 @@ G_BEGIN_DECLS
  * the main GtkToggleButton (icon + "Wi-Fi"/"Ethernet" label), meant to
  * turn the Wi-Fi radio itself on/off; network_expand_button is the
  * small chevron button that reveals network_revealer's contents.
+ * network_expand_chevron hands back the chevron's own GtkImage, so the
+ * caller can flip its direction (e.g. pan-down-symbolic while the list
+ * is expanded, pan-end-symbolic while collapsed) to mirror the list's
+ * open/closed state.
  * network_pill_label/icon hand back the label and icon widgets inside
  * network_toggle, so the caller can update them as the connection kind
  * changes. network_revealer hands back the GtkRevealer wrapping the
@@ -48,6 +52,7 @@ GtkWidget *extras_menu_popover_content_new(GtkWidget **volume_scale,
                                             GtkWidget **network_pill_label,
                                             GtkWidget **network_pill_icon,
                                             GtkWidget **network_expand_button,
+                                            GtkWidget **network_expand_chevron,
                                             GtkWidget **network_revealer,
                                             GtkWidget **network_list_box);
 

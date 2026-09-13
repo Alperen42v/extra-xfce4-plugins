@@ -119,16 +119,19 @@ extras_menu_make_pill_toggle(const gchar *icon_name,
  * pill, where "turn Wi-Fi on" and "show me the network list" are
  * different actions the mockup's single ">" glyph doesn't distinguish
  * between. Returns the outer container (ready to place in the grid);
- * out_main_toggle, out_label, out_icon and out_expand_button (all
- * optional) hand back the pieces callers need to wire up or update
- * dynamically. */
+ * out_main_toggle, out_label, out_icon, out_expand_button and
+ * out_chevron_icon (all optional) hand back the pieces callers need to
+ * wire up or update dynamically -- out_chevron_icon in particular so
+ * the caller can flip it (e.g. to pan-down-symbolic while the list
+ * below it is expanded, and back to pan-end-symbolic when collapsed). */
 static GtkWidget *
 extras_menu_make_split_pill(const gchar *icon_name,
                              const gchar *label_text,
                              GtkWidget **out_main_toggle,
                              GtkWidget **out_label,
                              GtkWidget **out_icon,
-                             GtkWidget **out_expand_button)
+                             GtkWidget **out_expand_button,
+                             GtkWidget **out_chevron_icon)
 {
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     extras_menu_apply_css(outer);
@@ -178,6 +181,8 @@ extras_menu_make_split_pill(const gchar *icon_name,
         *out_icon = icon;
     if (out_expand_button != NULL)
         *out_expand_button = expand_button;
+    if (out_chevron_icon != NULL)
+        *out_chevron_icon = chevron;
 
     return outer;
 }
@@ -246,6 +251,7 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
                                  GtkWidget **brightness_scale, GtkWidget **bluetooth_toggle,
                                  GtkWidget **network_toggle, GtkWidget **network_pill_label,
                                  GtkWidget **network_pill_icon, GtkWidget **network_expand_button,
+                                 GtkWidget **network_expand_chevron,
                                  GtkWidget **network_revealer, GtkWidget **network_list_box)
 {
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -283,9 +289,11 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
     GtkWidget *network_icon = NULL;
     GtkWidget *network_main_toggle = NULL;
     GtkWidget *network_expand = NULL;
+    GtkWidget *network_chevron = NULL;
     GtkWidget *wired = extras_menu_make_split_pill("network-wired-symbolic", "Wi-Fi",
                                                      &network_main_toggle, &network_label,
-                                                     &network_icon, &network_expand);
+                                                     &network_icon, &network_expand,
+                                                     &network_chevron);
     if (network_toggle != NULL)
         *network_toggle = network_main_toggle;
     if (network_pill_label != NULL)
@@ -294,6 +302,8 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
         *network_pill_icon = network_icon;
     if (network_expand_button != NULL)
         *network_expand_button = network_expand;
+    if (network_expand_chevron != NULL)
+        *network_expand_chevron = network_chevron;
 
     GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "");
 
