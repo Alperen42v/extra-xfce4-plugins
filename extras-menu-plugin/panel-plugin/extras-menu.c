@@ -227,7 +227,7 @@ prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWind
     if (response == GTK_RESPONSE_OK)
     {
         const gchar *password = gtk_entry_get_text(GTK_ENTRY(entry));
-        extras_menu_network_connect(plugin->network, ssid, password,
+        extras_menu_network_connect(plugin->network, ssid, password, TRUE,
                                      on_connect_result, plugin);
     }
 
@@ -266,7 +266,7 @@ on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user
     plugin->pending_connect_secured = secured;
     plugin->pending_connect_password_was_tried = FALSE;
 
-    extras_menu_network_connect(plugin->network, ssid, NULL, on_connect_result, plugin);
+    extras_menu_network_connect(plugin->network, ssid, NULL, secured, on_connect_result, plugin);
 }
 
 /* Builds one GtkListBoxRow for an access point: signal-strength icon,

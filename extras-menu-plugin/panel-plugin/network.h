@@ -106,15 +106,26 @@ void extras_menu_network_set_wifi_enabled(ExtrasMenuNetwork *network, gboolean e
  * frequently; NetworkManager rate-limits scans on its own. */
 void extras_menu_network_rescan(ExtrasMenuNetwork *network);
 
-/* Connects to the network with the given SSID. password may be NULL
- * (or empty) for an open network; for a secured one, pass the
- * Wi-Fi/WPA password. result_callback (optional) is invoked once the
- * attempt finishes. If a saved connection profile for this SSID
- * already exists, it's reactivated as-is (password is ignored in that
- * case); otherwise a new profile is created with the given password. */
+/* Connects to the network with the given SSID. If a saved connection
+ * profile for this SSID already exists, it's reactivated as-is (the
+ * password argument is ignored in that case -- NetworkManager uses
+ * the profile's own stored credentials). Otherwise, behavior depends
+ * on requires_password:
+ *   - FALSE (open network): a new profile is created and activated,
+ *     password may be NULL.
+ *   - TRUE (secured network): if password is NULL or empty, this
+ *     fails immediately (via result_callback) with an explanatory
+ *     error rather than creating a profile with no password, which
+ *     would appear to succeed at the D-Bus level (profile created,
+ *     activation "accepted") while never actually completing the
+ *     WPA handshake -- silently going nowhere instead of surfacing an
+ *     error. If password is non-empty, a new profile is created with
+ *     it and activated normally.
+ * result_callback (optional) is invoked once the attempt finishes. */
 void extras_menu_network_connect(ExtrasMenuNetwork *network,
                                   const gchar *ssid,
                                   const gchar *password,
+                                  gboolean requires_password,
                                   ExtrasMenuNetworkConnectResultFunc result_callback,
                                   gpointer result_user_data);
 

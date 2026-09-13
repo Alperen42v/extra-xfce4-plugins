@@ -929,6 +929,7 @@ typedef struct
     ExtrasMenuNetwork *network;
     gchar *ssid;
     gchar *password; /* only used if no existing profile is found */
+    gboolean requires_password; /* if TRUE and password is empty, refuse to create a passwordless profile */
     ExtrasMenuNetworkConnectResultFunc result_callback;
     gpointer result_user_data;
 
@@ -962,18 +963,45 @@ proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
         /* Reactivate the saved profile as-is -- its stored password
          * (if any) is used by NetworkManager itself, so the user isn't
          * prompted again for a network they've already connected to
-         * before. */
+         * before.
+         *
+         * Device path is deliberately "/" (unspecified) rather than
+         * our known Wi-Fi device path: some saved profiles carry an
+         * interface-name constraint from whenever they were first
+         * created (e.g. a different interface name than the current
+         * wlan0), and forcing our device path against a mismatched
+         * profile makes NetworkManager reject the activation outright
+         * ("mismatching interface name") instead of resolving it
+         * itself. Passing "/" lets NM pick the right device using the
+         * profile's own settings. */
         g_dbus_connection_call(
             ctx->network->system_bus,
             NM_BUS_NAME,
             NM_OBJ_PATH,
             NM_IFACE,
             "ActivateConnection",
-            g_variant_new("(ooo)", existing_profile_path, ctx->network->wifi_device_path, "/"),
+            g_variant_new("(ooo)", existing_profile_path, "/", "/"),
             G_VARIANT_TYPE("(o)"),
             G_DBUS_CALL_FLAGS_NONE,
             -1, NULL,
             on_connect_finished, result_ctx);
+    }
+    else if (ctx->requires_password && (ctx->password == NULL || ctx->password[0] == '\0'))
+    {
+        /* No saved profile, this network needs a password, and we
+         * don't have one -- refuse rather than creating a passwordless
+         * profile. That would "succeed" at the D-Bus level (profile
+         * created, activation request accepted) while the actual WPA
+         * handshake silently fails in the background, leaving the UI
+         * with no error to show and the user wondering why nothing
+         * happened. Report a clear, specific failure instead so the
+         * caller (on_connect_result in extras-menu.c) can fall back to
+         * prompting for a password. */
+        if (ctx->result_callback != NULL)
+        {
+            ctx->result_callback(FALSE, "No saved password for this network", ctx->result_user_data);
+        }
+        g_free(result_ctx);
     }
     else
     {
@@ -1163,6 +1191,7 @@ void
 extras_menu_network_connect(ExtrasMenuNetwork *network,
                              const gchar *ssid,
                              const gchar *password,
+                             gboolean requires_password,
                              ExtrasMenuNetworkConnectResultFunc result_callback,
                              gpointer result_user_data)
 {
@@ -1178,11 +1207,14 @@ extras_menu_network_connect(ExtrasMenuNetwork *network,
      * we're currently on) doesn't prompt for a password again --
      * NetworkManager reuses the profile's stored credentials. Falls
      * back to creating a fresh profile (see build_connection_settings)
-     * if none is found. */
+     * if none is found -- unless requires_password is set and we have
+     * no password, in which case proceed_with_connect() refuses rather
+     * than creating a doomed passwordless profile. */
     FindProfileCtx *ctx = g_new0(FindProfileCtx, 1);
     ctx->network = network;
     ctx->ssid = g_strdup(ssid);
     ctx->password = password != NULL ? g_strdup(password) : NULL;
+    ctx->requires_password = requires_password;
     ctx->result_callback = result_callback;
     ctx->result_user_data = result_user_data;
 
