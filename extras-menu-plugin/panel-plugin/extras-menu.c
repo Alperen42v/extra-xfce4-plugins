@@ -742,6 +742,23 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     gtk_window_set_skip_pager_hint(GTK_WINDOW(plugin->popover), TRUE);
     gtk_window_set_resizable(GTK_WINDOW(plugin->popover), FALSE);
 
+    /* Without this, the window keeps the screen's default (opaque)
+     * visual, so its true X11 shape stays a plain rectangle no matter
+     * what border-radius we draw in CSS -- the corner pixels CSS
+     * "cuts off" just fall through to that rectangle's normal (black)
+     * background instead of the desktop showing through. An RGBA
+     * visual gives the window a real alpha channel, so combined with
+     * the transparent window background below, the rounded corners
+     * are genuinely transparent rather than painted black. Falls back
+     * silently (square-cornered but otherwise fine) on the rare
+     * X11 setup with no RGBA visual available/no compositor. */
+    {
+        GdkScreen *screen = gtk_widget_get_screen(plugin->popover);
+        GdkVisual *rgba_visual = gdk_screen_get_rgba_visual(screen);
+        if (rgba_visual != NULL)
+            gtk_widget_set_visual(plugin->popover, rgba_visual);
+    }
+
     GtkWidget *content = extras_menu_popover_content_new(&plugin->volume_scale,
                                                            &plugin->volume_icon,
                                                            &plugin->brightness_scale,
@@ -757,7 +774,12 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives
-     * us this via its own CSS node, which we no longer have. */
+     * us this via its own CSS node, which we no longer have. Also sets
+     * the window's own background to transparent: some GTK themes
+     * paint an opaque "window" background by default even with an
+     * RGBA visual set, which would still show as black corners despite
+     * the visual change above -- explicit transparent background here
+     * closes that gap regardless of the active theme's own rules. */
     {
         GtkStyleContext *ctx = gtk_widget_get_style_context(plugin->popover);
         gtk_style_context_add_class(ctx, "background");
@@ -766,6 +788,7 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
         gtk_css_provider_load_from_data(
             frame_provider,
             "window { "
+            "  background-color: transparent; "
             "  border-radius: 12px; "
             "  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); "
             "}",

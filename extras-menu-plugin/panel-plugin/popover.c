@@ -5,8 +5,19 @@
  * to the active GTK theme: we only ever set "checked" state via the
  * normal GtkToggleButton :checked selector, which every theme already
  * themes with its own selected/accent color. We do NOT hardcode any
- * background-color here, so the widget follows whatever theme (Adwaita,
- * Arc, Matcha, ...) the user has active.
+ * background-color for individual pills/rows here, so those follow
+ * whatever theme (Adwaita, Arc, Matcha, ...) the user has active.
+ *
+ * The one exception is .extras-menu-popover's own background below:
+ * plain GtkBox nodes (which is what the root content container is)
+ * don't paint a background on their own even when a theme defines
+ * one, so without an explicit background here the box would stay
+ * fully transparent -- previously masked only by the window's own
+ * (opaque, square-cornered) background, which is why removing that to
+ * fix the black-corners issue made the whole dropdown transparent.
+ * @theme_bg_color is the standard GTK3 symbolic color themes use for
+ * this kind of surface (menus, popovers), so this still respects
+ * whatever theme is active rather than hardcoding a specific color.
  */
 static const gchar *EXTRAS_MENU_CSS =
     ".extras-menu-pill {"
@@ -25,6 +36,8 @@ static const gchar *EXTRAS_MENU_CSS =
     "}"
     ".extras-menu-popover {"
     "  padding: 10px;"
+    "  border-radius: 12px;"
+    "  background-color: @theme_bg_color;"
     "}"
     /* Split pill (network toggle + expand chevron): the outer box just
      * clips its two children into one pill-shaped silhouette. The
