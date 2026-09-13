@@ -65,6 +65,20 @@ free_ap_array(ExtrasMenuAccessPoint *aps, guint count)
     g_free(aps);
 }
 
+/* Sort predicate for the access point list: the currently-active
+ * network always sorts first (so the user sees what they're connected
+ * to without having to scroll/scan), everything else by signal
+ * strength descending. Used by the insertion sort in
+ * finish_ap_fetch_if_done() below. */
+static gboolean
+ap_sorts_before(const ExtrasMenuAccessPoint *a, const ExtrasMenuAccessPoint *b)
+{
+    if (a->is_active != b->is_active)
+        return a->is_active;
+
+    return a->strength > b->strength;
+}
+
 /* Decodes an AP's Ssid property, which NetworkManager exposes as a
  * byte array ("ay") rather than a string, since SSIDs aren't
  * guaranteed to be valid UTF-8. We treat it as UTF-8 on a best-effort
@@ -137,14 +151,15 @@ finish_ap_fetch_if_done(ApFetchContext *ctx)
         final_aps[i].is_active = src->is_active;
     }
 
-    /* Simple insertion sort by strength descending -- lists here are
-     * small (a handful to a few dozen networks), so O(n^2) is fine and
-     * keeps this dependency-free. */
+    /* Simple insertion sort: the currently-active network (if any)
+     * always sorts first, everything else by strength descending --
+     * lists here are small (a handful to a few dozen networks), so
+     * O(n^2) is fine and keeps this dependency-free. */
     for (guint a = 1; a < final_count; a++)
     {
         ExtrasMenuAccessPoint key = final_aps[a];
         gint b = (gint) a - 1;
-        while (b >= 0 && final_aps[b].strength < key.strength)
+        while (b >= 0 && ap_sorts_before(&key, &final_aps[b]))
         {
             final_aps[b + 1] = final_aps[b];
             b--;
