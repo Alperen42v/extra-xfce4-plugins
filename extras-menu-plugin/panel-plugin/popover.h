@@ -31,8 +31,13 @@ G_BEGIN_DECLS
  * is expanded, pan-end-symbolic while collapsed) to mirror the list's
  * open/closed state.
  * network_pill_label/icon hand back the label and icon widgets inside
- * network_toggle, so the caller can update them as the connection kind
- * changes. network_revealer hands back the GtkRevealer wrapping the
+ * network_toggle. network_icon_stack/network_spinner hand back the
+ * GtkStack holding network_pill_icon (as the "icon" child) plus a
+ * GtkSpinner (as the "spinner" child) -- the caller shows the spinner
+ * while a connection attempt is in progress by calling
+ * gtk_spinner_start() and gtk_stack_set_visible_child_name(stack,
+ * "spinner"), then reverses both once the attempt finishes.
+ * network_revealer hands back the GtkRevealer wrapping the
  * Wi-Fi network list -- collapsed (reveal-child FALSE) by default; the
  * caller decides when to expand it (normally: when network_expand_button
  * is clicked, and only when in Wi-Fi mode -- Ethernet mode has nothing
@@ -53,6 +58,8 @@ GtkWidget *extras_menu_popover_content_new(GtkWidget **volume_scale,
                                             GtkWidget **network_pill_icon,
                                             GtkWidget **network_expand_button,
                                             GtkWidget **network_expand_chevron,
+                                            GtkWidget **network_icon_stack,
+                                            GtkWidget **network_spinner,
                                             GtkWidget **network_revealer,
                                             GtkWidget **network_list_box);
 

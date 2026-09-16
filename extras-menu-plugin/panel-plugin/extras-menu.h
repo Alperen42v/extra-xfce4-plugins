@@ -63,9 +63,19 @@ struct _ExtrasMenuPlugin
     GtkWidget *network_pill_icon;
     GtkWidget *network_expand_button;
     GtkWidget *network_expand_chevron;
+    GtkWidget *network_icon_stack;
+    GtkWidget *network_spinner;
     GtkWidget *network_revealer;
     GtkWidget *network_list_box;
     ExtrasMenuNetwork *network;
+
+    /* Maps SSID (owned gchar*) -> the GtkListBoxRow currently showing
+     * it (borrowed, not owned -- rows belong to network_list_box), so
+     * on_network_row_activated() and on_connect_result() can find and
+     * update a specific row's "Connecting.../Connected" label without
+     * a linear search. Rebuilt every time on_network_list_changed()
+     * repopulates the list. */
+    GHashTable *network_row_by_ssid;
 
     /* Last status reported by the network backend, cached here for the
      * same reason as bluetooth_last_available/powered below -- GDBus

@@ -132,11 +132,16 @@ extras_menu_make_pill_toggle(const gchar *icon_name,
  * pill, where "turn Wi-Fi on" and "show me the network list" are
  * different actions the mockup's single ">" glyph doesn't distinguish
  * between. Returns the outer container (ready to place in the grid);
- * out_main_toggle, out_label, out_icon, out_expand_button and
- * out_chevron_icon (all optional) hand back the pieces callers need to
- * wire up or update dynamically -- out_chevron_icon in particular so
- * the caller can flip it (e.g. to pan-down-symbolic while the list
- * below it is expanded, and back to pan-end-symbolic when collapsed). */
+ * out_main_toggle, out_label, out_icon, out_expand_button,
+ * out_chevron_icon, out_icon_stack and out_spinner (all optional) hand
+ * back the pieces callers need to wire up or update dynamically --
+ * out_chevron_icon so the caller can flip it (e.g. to
+ * pan-down-symbolic while the list below it is expanded, and back to
+ * pan-end-symbolic when collapsed); out_icon_stack/out_spinner so the
+ * caller can show a spinner in place of the leading icon while a
+ * connection attempt is in progress (gtk_stack_set_visible_child_name
+ * the stack to "spinner" and gtk_spinner_start(), then back to "icon"
+ * and gtk_spinner_stop() when done). */
 static GtkWidget *
 extras_menu_make_split_pill(const gchar *icon_name,
                              const gchar *label_text,
@@ -144,7 +149,9 @@ extras_menu_make_split_pill(const gchar *icon_name,
                              GtkWidget **out_label,
                              GtkWidget **out_icon,
                              GtkWidget **out_expand_button,
-                             GtkWidget **out_chevron_icon)
+                             GtkWidget **out_chevron_icon,
+                             GtkWidget **out_icon_stack,
+                             GtkWidget **out_spinner)
 {
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     extras_menu_apply_css(outer);
@@ -159,11 +166,23 @@ extras_menu_make_split_pill(const gchar *icon_name,
 
     GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *icon = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
+
+    /* Stack lets the icon and spinner occupy the same slot, swapped
+     * out via gtk_stack_set_visible_child() while a connection attempt
+     * is in progress -- avoids the pill's width/layout jumping around
+     * when switching between them, unlike show/hide on two separate
+     * packed widgets. */
+    GtkWidget *icon_stack = gtk_stack_new();
+    GtkWidget *spinner = gtk_spinner_new();
+    gtk_stack_add_named(GTK_STACK(icon_stack), icon, "icon");
+    gtk_stack_add_named(GTK_STACK(icon_stack), spinner, "spinner");
+    gtk_stack_set_visible_child_name(GTK_STACK(icon_stack), "icon");
+
     GtkWidget *label = gtk_label_new(label_text);
     gtk_label_set_xalign(GTK_LABEL(label), 0.0);
     gtk_widget_set_hexpand(label, TRUE);
 
-    gtk_box_pack_start(GTK_BOX(main_box), icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(main_box), icon_stack, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(main_box), label, TRUE, TRUE, 0);
     gtk_container_add(GTK_CONTAINER(main_toggle), main_box);
 
@@ -196,6 +215,10 @@ extras_menu_make_split_pill(const gchar *icon_name,
         *out_expand_button = expand_button;
     if (out_chevron_icon != NULL)
         *out_chevron_icon = chevron;
+    if (out_icon_stack != NULL)
+        *out_icon_stack = icon_stack;
+    if (out_spinner != NULL)
+        *out_spinner = spinner;
 
     return outer;
 }
@@ -265,6 +288,7 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
                                  GtkWidget **network_toggle, GtkWidget **network_pill_label,
                                  GtkWidget **network_pill_icon, GtkWidget **network_expand_button,
                                  GtkWidget **network_expand_chevron,
+                                 GtkWidget **network_icon_stack, GtkWidget **network_spinner,
                                  GtkWidget **network_revealer, GtkWidget **network_list_box)
 {
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -303,10 +327,13 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
     GtkWidget *network_main_toggle = NULL;
     GtkWidget *network_expand = NULL;
     GtkWidget *network_chevron = NULL;
+    GtkWidget *network_stack = NULL;
+    GtkWidget *network_spin = NULL;
     GtkWidget *wired = extras_menu_make_split_pill("network-wired-symbolic", "Wi-Fi",
                                                      &network_main_toggle, &network_label,
                                                      &network_icon, &network_expand,
-                                                     &network_chevron);
+                                                     &network_chevron, &network_stack,
+                                                     &network_spin);
     if (network_toggle != NULL)
         *network_toggle = network_main_toggle;
     if (network_pill_label != NULL)
@@ -317,6 +344,10 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
         *network_expand_button = network_expand;
     if (network_expand_chevron != NULL)
         *network_expand_chevron = network_chevron;
+    if (network_icon_stack != NULL)
+        *network_icon_stack = network_stack;
+    if (network_spinner != NULL)
+        *network_spinner = network_spin;
 
     GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "");
 

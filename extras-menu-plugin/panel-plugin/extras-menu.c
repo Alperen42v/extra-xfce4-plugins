@@ -156,6 +156,8 @@ on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
 }
 
 static void prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWindow *parent_window);
+static void set_network_row_status(ExtrasMenuPlugin *plugin, const gchar *ssid, const gchar *text);
+static void set_network_pill_connecting(ExtrasMenuPlugin *plugin, gboolean connecting);
 
 /* Fired once extras_menu_network_connect() (below) finishes, whether
  * it succeeded or not.
@@ -175,15 +177,33 @@ on_connect_result(gboolean success, const gchar *error_message, gpointer user_da
     ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
 
     if (success)
+    {
+        /* The row's label is set to "Connected" here rather than left
+         * to the backend's next list refresh: that refresh does come
+         * (NetworkManager reports the new active AP), but not always
+         * immediately, and leaving the row stuck on "Connecting..." in
+         * the meantime looks like the attempt hung. */
+        set_network_pill_connecting(plugin, FALSE);
+        set_network_row_status(plugin, plugin->pending_connect_ssid, "Connected");
         return;
+    }
 
     if (plugin->pending_connect_secured && !plugin->pending_connect_password_was_tried)
     {
+        /* Still mid-attempt (about to prompt for a password), so the
+         * spinner stays running -- only the row's "Connecting..." text
+         * is cleared, since the user is about to be asked for input
+         * rather than actively waiting on the network. */
+        set_network_row_status(plugin, plugin->pending_connect_ssid, NULL);
+
         plugin->pending_connect_password_was_tried = TRUE;
         prompt_password_and_connect(plugin, plugin->pending_connect_ssid,
                                      GTK_WINDOW(plugin->popover));
         return;
     }
+
+    set_network_pill_connecting(plugin, FALSE);
+    set_network_row_status(plugin, plugin->pending_connect_ssid, NULL);
 
     GtkWidget *dialog = gtk_message_dialog_new(
         GTK_WINDOW(plugin->popover), GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -235,8 +255,17 @@ prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWind
     if (response == GTK_RESPONSE_OK)
     {
         const gchar *password = gtk_entry_get_text(GTK_ENTRY(entry));
+        set_network_row_status(plugin, ssid, "Connecting\xE2\x80\xA6"); /* "Connecting…" */
         extras_menu_network_connect(plugin->network, ssid, password, TRUE,
                                      on_connect_result, plugin);
+    }
+    else
+    {
+        /* Cancelled -- stop the spinner that on_network_row_activated()
+         * started, otherwise it would keep spinning forever with no
+         * attempt actually in flight. */
+        set_network_pill_connecting(plugin, FALSE);
+        set_network_row_status(plugin, ssid, NULL);
     }
 
     gtk_widget_destroy(dialog);
@@ -252,6 +281,53 @@ prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWind
  * authenticate with) do we fall back to prompting for a password --
  * see on_connect_result() below, which is where that fallback
  * actually happens. */
+/* Updates a network row's status label (found via
+ * plugin->network_row_by_ssid) to either "Connecting...", "Connected",
+ * or blank/hidden (idle -- neither connecting nor the active network).
+ * text may be NULL for the idle case. Safe to call for an SSID that
+ * isn't currently in the list (e.g. it scrolled out during a rescan
+ * mid-attempt) -- becomes a no-op rather than crashing. */
+static void
+set_network_row_status(ExtrasMenuPlugin *plugin, const gchar *ssid, const gchar *text)
+{
+    if (plugin->network_row_by_ssid == NULL || ssid == NULL)
+        return;
+
+    GtkWidget *row = g_hash_table_lookup(plugin->network_row_by_ssid, ssid);
+    if (row == NULL)
+        return;
+
+    GtkWidget *status_label = g_object_get_data(G_OBJECT(row), "extras-menu-status-label");
+    if (status_label == NULL)
+        return;
+
+    gtk_label_set_text(GTK_LABEL(status_label), text != NULL ? text : "");
+    gtk_widget_set_visible(status_label, text != NULL);
+}
+
+/* Shows/hides the spinner in place of the network pill's leading icon
+ * -- used to indicate a connection attempt is in progress. Safe to
+ * call even if the icon stack/spinner widgets don't exist yet (no-op),
+ * matching the defensive style used elsewhere for widgets that might
+ * not be built yet when a backend callback fires early. */
+static void
+set_network_pill_connecting(ExtrasMenuPlugin *plugin, gboolean connecting)
+{
+    if (plugin->network_icon_stack == NULL || plugin->network_spinner == NULL)
+        return;
+
+    if (connecting)
+    {
+        gtk_spinner_start(GTK_SPINNER(plugin->network_spinner));
+        gtk_stack_set_visible_child_name(GTK_STACK(plugin->network_icon_stack), "spinner");
+    }
+    else
+    {
+        gtk_stack_set_visible_child_name(GTK_STACK(plugin->network_icon_stack), "icon");
+        gtk_spinner_stop(GTK_SPINNER(plugin->network_spinner));
+    }
+}
+
 static void
 on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user_data)
 {
@@ -273,6 +349,9 @@ on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user
     plugin->pending_connect_ssid = g_strdup(ssid);
     plugin->pending_connect_secured = secured;
     plugin->pending_connect_password_was_tried = FALSE;
+
+    set_network_row_status(plugin, ssid, "Connecting\xE2\x80\xA6"); /* "Connecting…" */
+    set_network_pill_connecting(plugin, TRUE);
 
     extras_menu_network_connect(plugin->network, ssid, NULL, secured, on_connect_result, plugin);
 }
@@ -314,18 +393,24 @@ make_network_row(const ExtrasMenuAccessPoint *ap)
         gtk_box_pack_start(GTK_BOX(row_box), lock_icon, FALSE, FALSE, 0);
     }
 
-    if (ap->is_active)
-    {
-        GtkWidget *connected_label = gtk_label_new("Connected");
-        gtk_style_context_add_class(gtk_widget_get_style_context(connected_label), "dim-label");
-        gtk_box_pack_start(GTK_BOX(row_box), connected_label, FALSE, FALSE, 0);
-    }
+    /* Status label ("Connecting..."/"Connected"), always created (even
+     * for rows that start neither) so on_network_row_activated() and
+     * on_connect_result() can find and update it later via
+     * g_object_get_data() without having to rebuild the row -- only
+     * its text and visibility change as the connection attempt
+     * progresses. */
+    GtkWidget *status_label = gtk_label_new(ap->is_active ? "Connected" : "");
+    gtk_style_context_add_class(gtk_widget_get_style_context(status_label), "dim-label");
+    gtk_widget_set_no_show_all(status_label, TRUE); /* so show_all() below doesn't force it visible */
+    gtk_widget_set_visible(status_label, ap->is_active);
+    gtk_box_pack_start(GTK_BOX(row_box), status_label, FALSE, FALSE, 0);
 
     GtkWidget *row = gtk_list_box_row_new();
     gtk_container_add(GTK_CONTAINER(row), row_box);
 
     g_object_set_data_full(G_OBJECT(row), "extras-menu-ssid", g_strdup(ap->ssid), g_free);
     g_object_set_data(G_OBJECT(row), "extras-menu-secured", GINT_TO_POINTER(ap->secured));
+    g_object_set_data(G_OBJECT(row), "extras-menu-status-label", status_label);
 
     gtk_widget_show_all(row);
     return row;
@@ -350,6 +435,9 @@ on_network_list_changed(gboolean wifi_available, const ExtrasMenuAccessPoint *ap
         gtk_widget_destroy(GTK_WIDGET(l->data));
     g_list_free(existing_rows);
 
+    if (plugin->network_row_by_ssid != NULL)
+        g_hash_table_remove_all(plugin->network_row_by_ssid);
+
     if (!wifi_available)
         return;
 
@@ -357,6 +445,8 @@ on_network_list_changed(gboolean wifi_available, const ExtrasMenuAccessPoint *ap
     {
         GtkWidget *row = make_network_row(&aps[i]);
         gtk_list_box_insert(GTK_LIST_BOX(plugin->network_list_box), row, -1);
+        if (plugin->network_row_by_ssid != NULL)
+            g_hash_table_insert(plugin->network_row_by_ssid, g_strdup(aps[i].ssid), row);
     }
 }
 
@@ -404,6 +494,9 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->network_pill_icon = NULL;
     plugin->network_expand_button = NULL;
     plugin->network_expand_chevron = NULL;
+    plugin->network_icon_stack = NULL;
+    plugin->network_spinner = NULL;
+    plugin->network_row_by_ssid = NULL;
     plugin->network_revealer = NULL;
     plugin->network_list_box = NULL;
     plugin->network = NULL;
@@ -711,6 +804,12 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 
     g_free(plugin->pending_connect_ssid);
     plugin->pending_connect_ssid = NULL;
+
+    if (plugin->network_row_by_ssid != NULL)
+    {
+        g_hash_table_destroy(plugin->network_row_by_ssid);
+        plugin->network_row_by_ssid = NULL;
+    }
 }
 
 static void
@@ -768,9 +867,16 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                                                            &plugin->network_pill_icon,
                                                            &plugin->network_expand_button,
                                                            &plugin->network_expand_chevron,
+                                                           &plugin->network_icon_stack,
+                                                           &plugin->network_spinner,
                                                            &plugin->network_revealer,
                                                            &plugin->network_list_box);
     gtk_container_add(GTK_CONTAINER(plugin->popover), content);
+
+    /* SSID -> GtkListBoxRow lookup for the network list, used by
+     * on_network_row_activated()/on_connect_result() to update a
+     * specific row's status label without a linear search. */
+    plugin->network_row_by_ssid = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives
