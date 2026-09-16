@@ -34,6 +34,25 @@ typedef enum
     EXTRAS_MENU_NETWORK_KIND_ETHERNET
 } ExtrasMenuNetworkKind;
 
+/* The security scheme an access point advertises, derived from
+ * NetworkManager's Flags/WpaFlags/RsnFlags bitfields. Mixed modes get
+ * their own values rather than being collapsed into the stronger one,
+ * since "WPA2/WPA3" tells the user something different from plain
+ * "WPA3" (namely that older clients can still connect). */
+typedef enum
+{
+    EXTRAS_MENU_AP_SECURITY_UNKNOWN,
+    EXTRAS_MENU_AP_SECURITY_OPEN,
+    EXTRAS_MENU_AP_SECURITY_OWE,        /* Enhanced Open -- encrypted, no password */
+    EXTRAS_MENU_AP_SECURITY_WEP,
+    EXTRAS_MENU_AP_SECURITY_WPA,
+    EXTRAS_MENU_AP_SECURITY_WPA2,
+    EXTRAS_MENU_AP_SECURITY_WPA_WPA2,   /* transitional, both accepted */
+    EXTRAS_MENU_AP_SECURITY_WPA3,
+    EXTRAS_MENU_AP_SECURITY_WPA2_WPA3,  /* transitional, both accepted */
+    EXTRAS_MENU_AP_SECURITY_ENTERPRISE  /* 802.1X, any generation */
+} ExtrasMenuApSecurity;
+
 /* One access point (a visible Wi-Fi network), as reported to the
  * network_list_changed callback below. Strings are owned by the
  * struct and only valid for the duration of that callback -- copy
@@ -44,7 +63,17 @@ typedef struct
     gint8 strength; /* 0-100 */
     gboolean secured; /* TRUE if a password is required to connect */
     gboolean is_active; /* TRUE if this is the network we're currently connected to */
+
+    ExtrasMenuApSecurity security;
+    gchar *bssid;         /* AP hardware address, e.g. "00:11:22:33:44:55" */
+    guint32 frequency;    /* MHz, e.g. 2437 */
+    guint32 max_bitrate;  /* kb/s as reported by NM, e.g. 270000 */
 } ExtrasMenuAccessPoint;
+
+/* Human-readable name for a security scheme ("WPA2", "WPA2/WPA3",
+ * "Open", ...), suitable for showing directly in a UI. Returned string
+ * is static and must not be freed. */
+const gchar *extras_menu_ap_security_to_string(ExtrasMenuApSecurity security);
 
 /* Fired whenever the visible access point list changes (initial scan
  * results, periodic rescans, a network appearing/disappearing, or the
@@ -131,6 +160,19 @@ void extras_menu_network_connect(ExtrasMenuNetwork *network,
 
 /* Disconnects the Wi-Fi device, if currently connected to anything. */
 void extras_menu_network_disconnect(ExtrasMenuNetwork *network);
+
+/* Deletes every saved connection profile matching this SSID, so
+ * NetworkManager forgets its stored password and stops auto-connecting
+ * to it. Deleting all matches rather than just the first is
+ * deliberate: duplicate profiles for one SSID do accumulate in
+ * practice (NM appends " 1", " 2", ... when a profile is recreated),
+ * and leaving one behind would make "forget" appear not to have
+ * worked. result_callback (optional) fires once, after the last
+ * deletion finishes. */
+void extras_menu_network_forget(ExtrasMenuNetwork *network,
+                                 const gchar *ssid,
+                                 ExtrasMenuNetworkConnectResultFunc result_callback,
+                                 gpointer result_user_data);
 
 void extras_menu_network_free(ExtrasMenuNetwork *network);
 

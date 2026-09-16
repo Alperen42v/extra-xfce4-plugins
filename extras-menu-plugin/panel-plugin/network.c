@@ -18,6 +18,21 @@
 #define NM_DEVICE_TYPE_ETHERNET 1
 #define NM_DEVICE_TYPE_WIFI     2
 
+/* NM80211ApFlags -- the AP's own general capability bits. */
+#define NM_802_11_AP_FLAGS_PRIVACY 0x00000001
+
+/* NM80211ApSecurityFlags -- the bits NetworkManager reports in an
+ * access point's WpaFlags (WPA1 RSN-less IEs) and RsnFlags (RSN/WPA2+
+ * IEs). We only need the key-management bits to tell the generations
+ * apart; the cipher bits (TKIP/CCMP/...) are there for completeness of
+ * the mask but aren't inspected. */
+#define NM_802_11_AP_SEC_KEY_MGMT_PSK            0x00000100
+#define NM_802_11_AP_SEC_KEY_MGMT_802_1X         0x00000200
+#define NM_802_11_AP_SEC_KEY_MGMT_SAE            0x00000400 /* WPA3-Personal */
+#define NM_802_11_AP_SEC_KEY_MGMT_OWE            0x00000800 /* Enhanced Open */
+#define NM_802_11_AP_SEC_KEY_MGMT_OWE_TM         0x00001000
+#define NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192 0x00002000 /* WPA3-Enterprise */
+
 struct _ExtrasMenuNetwork
 {
     GDBusConnection *system_bus;
@@ -61,8 +76,78 @@ static void
 free_ap_array(ExtrasMenuAccessPoint *aps, guint count)
 {
     for (guint i = 0; i < count; i++)
+    {
         g_free(aps[i].ssid);
+        g_free(aps[i].bssid);
+    }
     g_free(aps);
+}
+
+/* Works out which security scheme an AP advertises from the three
+ * bitfields NetworkManager exposes:
+ *   flags     -- general AP capabilities; PRIVACY means "encrypted"
+ *                without saying how (the only signal WEP gives us)
+ *   wpa_flags -- key management offered via the older WPA1 IEs
+ *   rsn_flags -- key management offered via RSN (WPA2 and later)
+ * The generations are told apart by key-management bits rather than
+ * ciphers: SAE means WPA3-Personal, PSK under RSN means WPA2, PSK
+ * under the WPA1 IEs means WPA1, and an AP advertising both PSK and
+ * SAE under RSN is in WPA2/WPA3 transitional mode. */
+static ExtrasMenuApSecurity
+derive_ap_security(guint32 flags, guint32 wpa_flags, guint32 rsn_flags)
+{
+    const guint32 enterprise_bits = NM_802_11_AP_SEC_KEY_MGMT_802_1X |
+                                     NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192;
+
+    if ((wpa_flags & enterprise_bits) != 0 || (rsn_flags & enterprise_bits) != 0)
+        return EXTRAS_MENU_AP_SECURITY_ENTERPRISE;
+
+    gboolean rsn_has_sae = (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SAE) != 0;
+    gboolean rsn_has_psk = (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK) != 0;
+    gboolean wpa_has_psk = (wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK) != 0;
+
+    if (rsn_has_sae && rsn_has_psk)
+        return EXTRAS_MENU_AP_SECURITY_WPA2_WPA3;
+    if (rsn_has_sae)
+        return EXTRAS_MENU_AP_SECURITY_WPA3;
+    if (rsn_has_psk && wpa_has_psk)
+        return EXTRAS_MENU_AP_SECURITY_WPA_WPA2;
+    if (rsn_has_psk)
+        return EXTRAS_MENU_AP_SECURITY_WPA2;
+    if (wpa_has_psk)
+        return EXTRAS_MENU_AP_SECURITY_WPA;
+
+    if ((rsn_flags & (NM_802_11_AP_SEC_KEY_MGMT_OWE | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM)) != 0)
+        return EXTRAS_MENU_AP_SECURITY_OWE;
+
+    /* No WPA/RSN key management at all, but the AP still claims to be
+     * encrypted -- that only leaves WEP. */
+    if ((flags & NM_802_11_AP_FLAGS_PRIVACY) != 0)
+        return EXTRAS_MENU_AP_SECURITY_WEP;
+
+    if (wpa_flags == 0 && rsn_flags == 0)
+        return EXTRAS_MENU_AP_SECURITY_OPEN;
+
+    return EXTRAS_MENU_AP_SECURITY_UNKNOWN;
+}
+
+const gchar *
+extras_menu_ap_security_to_string(ExtrasMenuApSecurity security)
+{
+    switch (security)
+    {
+        case EXTRAS_MENU_AP_SECURITY_OPEN:       return "Open";
+        case EXTRAS_MENU_AP_SECURITY_OWE:        return "Enhanced Open";
+        case EXTRAS_MENU_AP_SECURITY_WEP:        return "WEP";
+        case EXTRAS_MENU_AP_SECURITY_WPA:        return "WPA";
+        case EXTRAS_MENU_AP_SECURITY_WPA2:       return "WPA2";
+        case EXTRAS_MENU_AP_SECURITY_WPA_WPA2:   return "WPA/WPA2";
+        case EXTRAS_MENU_AP_SECURITY_WPA3:       return "WPA3";
+        case EXTRAS_MENU_AP_SECURITY_WPA2_WPA3:  return "WPA2/WPA3";
+        case EXTRAS_MENU_AP_SECURITY_ENTERPRISE: return "Enterprise (802.1X)";
+        case EXTRAS_MENU_AP_SECURITY_UNKNOWN:
+        default:                                  return "Unknown";
+    }
 }
 
 /* Sort predicate for the access point list: the currently-active
@@ -149,6 +234,10 @@ finish_ap_fetch_if_done(ApFetchContext *ctx)
         final_aps[i].strength = src->strength;
         final_aps[i].secured = src->secured;
         final_aps[i].is_active = src->is_active;
+        final_aps[i].security = src->security;
+        final_aps[i].bssid = src->bssid != NULL ? g_strdup(src->bssid) : NULL;
+        final_aps[i].frequency = src->frequency;
+        final_aps[i].max_bitrate = src->max_bitrate;
     }
 
     /* Simple insertion sort: the currently-active network (if any)
@@ -182,6 +271,7 @@ finish_ap_fetch_if_done(ApFetchContext *ctx)
     {
         ExtrasMenuAccessPoint *ap = g_ptr_array_index(ctx->results, j);
         g_free(ap->ssid);
+        g_free(ap->bssid);
         g_free(ap);
     }
     g_ptr_array_free(ctx->results, TRUE);
@@ -213,16 +303,26 @@ on_single_ap_properties_finished(GObject *source, GAsyncResult *result, gpointer
 
         GVariant *ssid_v = g_variant_lookup_value(props, "Ssid", G_VARIANT_TYPE("ay"));
         GVariant *strength_v = g_variant_lookup_value(props, "Strength", G_VARIANT_TYPE_BYTE);
+        GVariant *flags_v = g_variant_lookup_value(props, "Flags", G_VARIANT_TYPE_UINT32);
         GVariant *wpa_flags_v = g_variant_lookup_value(props, "WpaFlags", G_VARIANT_TYPE_UINT32);
         GVariant *rsn_flags_v = g_variant_lookup_value(props, "RsnFlags", G_VARIANT_TYPE_UINT32);
+        GVariant *bssid_v = g_variant_lookup_value(props, "HwAddress", G_VARIANT_TYPE_STRING);
+        GVariant *frequency_v = g_variant_lookup_value(props, "Frequency", G_VARIANT_TYPE_UINT32);
+        GVariant *bitrate_v = g_variant_lookup_value(props, "MaxBitrate", G_VARIANT_TYPE_UINT32);
 
         ExtrasMenuAccessPoint *ap = g_new0(ExtrasMenuAccessPoint, 1);
         ap->ssid = decode_ssid(ssid_v);
         ap->strength = strength_v != NULL ? (gint8) g_variant_get_byte(strength_v) : 0;
 
+        guint32 flags = flags_v != NULL ? g_variant_get_uint32(flags_v) : 0;
         guint32 wpa_flags = wpa_flags_v != NULL ? g_variant_get_uint32(wpa_flags_v) : 0;
         guint32 rsn_flags = rsn_flags_v != NULL ? g_variant_get_uint32(rsn_flags_v) : 0;
         ap->secured = (wpa_flags != 0 || rsn_flags != 0);
+        ap->security = derive_ap_security(flags, wpa_flags, rsn_flags);
+
+        ap->bssid = bssid_v != NULL ? g_variant_dup_string(bssid_v, NULL) : NULL;
+        ap->frequency = frequency_v != NULL ? g_variant_get_uint32(frequency_v) : 0;
+        ap->max_bitrate = bitrate_v != NULL ? g_variant_get_uint32(bitrate_v) : 0;
 
         ap->is_active = (ctx->active_ap_path != NULL &&
                           g_strcmp0(call_ctx->ap_object_path, ctx->active_ap_path) == 0);
@@ -231,8 +331,12 @@ on_single_ap_properties_finished(GObject *source, GAsyncResult *result, gpointer
 
         if (ssid_v != NULL) g_variant_unref(ssid_v);
         if (strength_v != NULL) g_variant_unref(strength_v);
+        if (flags_v != NULL) g_variant_unref(flags_v);
         if (wpa_flags_v != NULL) g_variant_unref(wpa_flags_v);
         if (rsn_flags_v != NULL) g_variant_unref(rsn_flags_v);
+        if (bssid_v != NULL) g_variant_unref(bssid_v);
+        if (frequency_v != NULL) g_variant_unref(frequency_v);
+        if (bitrate_v != NULL) g_variant_unref(bitrate_v);
         g_variant_unref(props);
         g_variant_unref(reply);
     }
@@ -1263,6 +1367,225 @@ extras_menu_network_disconnect(ExtrasMenuNetwork *network)
         G_DBUS_CALL_FLAGS_NONE,
         -1, NULL,
         NULL, NULL);
+}
+
+/* --- forgetting a network (deleting its saved profiles) ---------------- */
+
+typedef struct
+{
+    ExtrasMenuNetwork *network;
+    gchar *ssid;
+    ExtrasMenuNetworkConnectResultFunc result_callback;
+    gpointer result_user_data;
+
+    gchar **profile_paths; /* NULL-terminated */
+    guint index;
+
+    guint deleted_count;
+    gboolean had_error;
+    gchar *first_error; /* owned; first failure's message, for reporting */
+} ForgetCtx;
+
+static void forget_check_next(ForgetCtx *ctx);
+
+static void
+finish_forget(ForgetCtx *ctx)
+{
+    if (ctx->result_callback != NULL)
+    {
+        if (ctx->deleted_count == 0 && !ctx->had_error)
+        {
+            /* Nothing matched -- treat as success rather than an error:
+             * the end state the user asked for ("this network isn't
+             * saved anymore") is already true. */
+            ctx->result_callback(TRUE, NULL, ctx->result_user_data);
+        }
+        else if (ctx->had_error)
+        {
+            ctx->result_callback(FALSE,
+                                  ctx->first_error != NULL ? ctx->first_error : "Unknown error",
+                                  ctx->result_user_data);
+        }
+        else
+        {
+            ctx->result_callback(TRUE, NULL, ctx->result_user_data);
+        }
+    }
+
+    g_free(ctx->ssid);
+    g_free(ctx->first_error);
+    g_strfreev(ctx->profile_paths);
+    g_free(ctx);
+}
+
+static void
+on_profile_deleted(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    ForgetCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply != NULL)
+    {
+        ctx->deleted_count++;
+        g_variant_unref(reply);
+    }
+    else
+    {
+        ctx->had_error = TRUE;
+        if (ctx->first_error == NULL && error != NULL)
+            ctx->first_error = g_strdup(error->message);
+    }
+    g_clear_error(&error);
+
+    ctx->index++;
+    forget_check_next(ctx);
+}
+
+static void
+on_forget_profile_settings_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    ForgetCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    gboolean matches = FALSE;
+
+    if (reply != NULL)
+    {
+        GVariant *settings = NULL;
+        g_variant_get(reply, "(@a{sa{sv}})", &settings);
+
+        GVariant *wifi_section = g_variant_lookup_value(settings, "802-11-wireless", G_VARIANT_TYPE("a{sv}"));
+        if (wifi_section != NULL)
+        {
+            GVariant *ssid_v = g_variant_lookup_value(wifi_section, "ssid", G_VARIANT_TYPE("ay"));
+            if (ssid_v != NULL)
+            {
+                gchar *found_ssid = decode_ssid(ssid_v);
+                matches = (g_strcmp0(found_ssid, ctx->ssid) == 0);
+                g_free(found_ssid);
+                g_variant_unref(ssid_v);
+            }
+            g_variant_unref(wifi_section);
+        }
+
+        g_variant_unref(settings);
+        g_variant_unref(reply);
+    }
+    g_clear_error(&error);
+
+    if (matches)
+    {
+        /* Delete this one, then carry on through the rest -- see
+         * extras_menu_network_forget()'s doc comment for why we don't
+         * stop at the first match. */
+        g_dbus_connection_call(
+            ctx->network->system_bus,
+            NM_BUS_NAME,
+            ctx->profile_paths[ctx->index],
+            NM_SETTINGS_CONNECTION_IFACE,
+            "Delete",
+            NULL,
+            NULL,
+            G_DBUS_CALL_FLAGS_NONE,
+            -1, NULL,
+            on_profile_deleted, ctx);
+        return;
+    }
+
+    ctx->index++;
+    forget_check_next(ctx);
+}
+
+static void
+forget_check_next(ForgetCtx *ctx)
+{
+    if (ctx->profile_paths == NULL || ctx->profile_paths[ctx->index] == NULL)
+    {
+        finish_forget(ctx);
+        return;
+    }
+
+    g_dbus_connection_call(
+        ctx->network->system_bus,
+        NM_BUS_NAME,
+        ctx->profile_paths[ctx->index],
+        NM_SETTINGS_CONNECTION_IFACE,
+        "GetSettings",
+        NULL,
+        G_VARIANT_TYPE("(a{sa{sv}})"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, NULL,
+        on_forget_profile_settings_finished, ctx);
+}
+
+static void
+on_forget_list_connections_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    ForgetCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL)
+    {
+        ctx->had_error = TRUE;
+        if (error != NULL)
+            ctx->first_error = g_strdup(error->message);
+        g_clear_error(&error);
+        finish_forget(ctx);
+        return;
+    }
+
+    GVariant *paths_v = NULL;
+    g_variant_get(reply, "(@ao)", &paths_v);
+
+    guint n = (guint) g_variant_n_children(paths_v);
+    ctx->profile_paths = g_new0(gchar *, n + 1); /* NULL-terminated */
+    for (guint i = 0; i < n; i++)
+    {
+        GVariant *child = g_variant_get_child_value(paths_v, i);
+        ctx->profile_paths[i] = g_variant_dup_string(child, NULL);
+        g_variant_unref(child);
+    }
+
+    g_variant_unref(paths_v);
+    g_variant_unref(reply);
+
+    ctx->index = 0;
+    forget_check_next(ctx);
+}
+
+void
+extras_menu_network_forget(ExtrasMenuNetwork *network,
+                            const gchar *ssid,
+                            ExtrasMenuNetworkConnectResultFunc result_callback,
+                            gpointer result_user_data)
+{
+    if (network == NULL || network->system_bus == NULL || ssid == NULL)
+    {
+        if (result_callback != NULL)
+            result_callback(FALSE, "Wi-Fi not available", result_user_data);
+        return;
+    }
+
+    ForgetCtx *ctx = g_new0(ForgetCtx, 1);
+    ctx->network = network;
+    ctx->ssid = g_strdup(ssid);
+    ctx->result_callback = result_callback;
+    ctx->result_user_data = result_user_data;
+
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        NM_SETTINGS_OBJ_PATH,
+        NM_SETTINGS_IFACE,
+        "ListConnections",
+        NULL,
+        G_VARIANT_TYPE("(ao)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, NULL,
+        on_forget_list_connections_finished, ctx);
 }
 
 void
