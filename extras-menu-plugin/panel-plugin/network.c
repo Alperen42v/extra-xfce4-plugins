@@ -965,12 +965,138 @@ on_bus_get_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 
 /* --- connecting / disconnecting ------------------------------------------- */
 
+/* NMActiveConnectionState -- the states StateChanged reports. We only
+ * care about telling "it worked", "it's still trying" and "it failed"
+ * apart. */
+#define NM_ACTIVE_CONNECTION_STATE_ACTIVATING   1
+#define NM_ACTIVE_CONNECTION_STATE_ACTIVATED    2
+#define NM_ACTIVE_CONNECTION_STATE_DEACTIVATING 3
+#define NM_ACTIVE_CONNECTION_STATE_DEACTIVATED  4
+
 typedef struct
 {
+    ExtrasMenuNetwork *network;
+    ExtrasMenuNetworkConnectResultFunc callback;
+    gpointer user_data;
+    guint subscription_id;
+    guint timeout_source_id;
+    gboolean finished; /* guards against StateChanged firing again after we've already reported */
+} ActiveConnectionWatchCtx;
+
+static void
+finish_active_connection_watch(ActiveConnectionWatchCtx *watch, gboolean success, const gchar *error_message)
+{
+    if (watch->finished)
+        return;
+    watch->finished = TRUE;
+
+    if (watch->subscription_id != 0)
+        g_dbus_connection_signal_unsubscribe(watch->network->system_bus, watch->subscription_id);
+    if (watch->timeout_source_id != 0)
+        g_source_remove(watch->timeout_source_id);
+
+    if (watch->callback != NULL)
+        watch->callback(success, error_message, watch->user_data);
+
+    g_free(watch);
+}
+
+static void
+on_active_connection_state_changed(GDBusConnection *connection, const gchar *sender_name,
+                                    const gchar *object_path, const gchar *interface_name,
+                                    const gchar *signal_name, GVariant *parameters,
+                                    gpointer user_data)
+{
+    ActiveConnectionWatchCtx *watch = user_data;
+    (void) connection;
+    (void) sender_name;
+    (void) object_path;
+    (void) interface_name;
+    (void) signal_name;
+
+    guint32 state = 0, reason = 0;
+    g_variant_get(parameters, "(uu)", &state, &reason);
+
+    if (state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED)
+    {
+        finish_active_connection_watch(watch, TRUE, NULL);
+    }
+    else if (state == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
+    {
+        /* This is the state a failed WPA handshake (wrong password)
+         * actually lands in -- the D-Bus call to start activating
+         * still returns success, since starting the attempt did
+         * succeed; the failure only shows up here, once NM gives up
+         * and tears the attempt back down. reason codes are libnm's
+         * NMActiveConnectionStateReason -- we don't decode the exact
+         * one, just surface that it failed, since the reasons that
+         * matter to a user ("wrong password", "network out of range")
+         * aren't reliably distinguishable from the reason code alone
+         * across NetworkManager versions. */
+        (void) reason;
+        finish_active_connection_watch(watch, FALSE,
+                                        "Connection failed (incorrect password or network unavailable)");
+    }
+    /* ACTIVATING and DEACTIVATING are intermediate -- keep waiting. */
+}
+
+/* A connection attempt that never reaches ACTIVATED or DEACTIVATED
+ * (rare, but possible if NetworkManager wedges) would otherwise leave
+ * the caller's "Connecting..." UI spinning forever -- this bounds the
+ * wait. */
+#define ACTIVE_CONNECTION_WATCH_TIMEOUT_SECONDS 25
+
+static gboolean
+on_active_connection_watch_timeout(gpointer user_data)
+{
+    ActiveConnectionWatchCtx *watch = user_data;
+    watch->timeout_source_id = 0; /* this source is about to be removed by returning FALSE */
+    finish_active_connection_watch(watch, FALSE, "Connection attempt timed out");
+    return G_SOURCE_REMOVE;
+}
+
+/* Subscribes to the given active-connection object's StateChanged
+ * signal and reports the real outcome (success once ACTIVATED,
+ * failure once DEACTIVATED or on timeout) via callback -- this is what
+ * lets us tell an actually-successful connection apart from a WPA
+ * handshake that fails after the initial D-Bus call already returned
+ * "accepted". */
+static void
+watch_active_connection(ExtrasMenuNetwork *network,
+                         const gchar *active_connection_path,
+                         ExtrasMenuNetworkConnectResultFunc callback,
+                         gpointer user_data)
+{
+    ActiveConnectionWatchCtx *watch = g_new0(ActiveConnectionWatchCtx, 1);
+    watch->network = network;
+    watch->callback = callback;
+    watch->user_data = user_data;
+    watch->finished = FALSE;
+
+    watch->subscription_id = g_dbus_connection_signal_subscribe(
+        network->system_bus, NM_BUS_NAME,
+        NM_CONNECTION_ACTIVE_IFACE, "StateChanged",
+        active_connection_path, NULL, G_DBUS_SIGNAL_FLAGS_NONE,
+        on_active_connection_state_changed, watch, NULL);
+
+    watch->timeout_source_id = g_timeout_add_seconds(
+        ACTIVE_CONNECTION_WATCH_TIMEOUT_SECONDS, on_active_connection_watch_timeout, watch);
+}
+
+typedef struct
+{
+    ExtrasMenuNetwork *network;
     ExtrasMenuNetworkConnectResultFunc callback;
     gpointer user_data;
 } ConnectResultCtx;
 
+/* Fired once the initial ActivateConnection/AddAndActivateConnection
+ * D-Bus call itself completes. This only tells us whether NetworkManager
+ * *accepted the request* to start connecting -- not whether the
+ * connection actually succeeds (see watch_active_connection() above,
+ * which is what reports the real outcome). On a D-Bus-level failure
+ * here (e.g. malformed profile), we report immediately since there's
+ * no active connection object to watch in that case. */
 static void
 on_connect_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 {
@@ -979,17 +1105,33 @@ on_connect_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
 
-    if (ctx->callback != NULL)
+    if (reply == NULL)
     {
-        if (reply != NULL)
-            ctx->callback(TRUE, NULL, ctx->user_data);
-        else
+        if (ctx->callback != NULL)
             ctx->callback(FALSE, error != NULL ? error->message : "Unknown error", ctx->user_data);
+        g_clear_error(&error);
+        g_free(ctx);
+        return;
     }
 
-    if (reply != NULL)
-        g_variant_unref(reply);
-    g_clear_error(&error);
+    /* ActivateConnection returns "(o)" -- just the active connection
+     * path. AddAndActivateConnection returns "(oo)" -- the newly
+     * created profile's path first, then the active connection path.
+     * The active connection path we actually want to watch is always
+     * the LAST element, not always index 0 -- using a fixed index 0
+     * here previously grabbed the new profile's path instead of the
+     * active connection's path when called via
+     * AddAndActivateConnection, which meant we were subscribing to
+     * StateChanged on the wrong object entirely (a static Settings
+     * profile never emits it), so failures were never detected. */
+    gsize n_children = g_variant_n_children(reply);
+    GVariant *active_path_v = g_variant_get_child_value(reply, n_children - 1);
+    const gchar *active_path = g_variant_get_string(active_path_v, NULL);
+
+    watch_active_connection(ctx->network, active_path, ctx->callback, ctx->user_data);
+
+    g_variant_unref(active_path_v);
+    g_variant_unref(reply);
     g_free(ctx);
 }
 
@@ -1074,6 +1216,7 @@ static void
 proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
 {
     ConnectResultCtx *result_ctx = g_new0(ConnectResultCtx, 1);
+    result_ctx->network = ctx->network;
     result_ctx->callback = ctx->result_callback;
     result_ctx->user_data = ctx->result_user_data;
 
