@@ -771,6 +771,12 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->toggle_button = NULL;
     plugin->button_icon = NULL;
     plugin->popover = NULL;
+    plugin->battery_label = NULL;
+    plugin->battery_icon = NULL;
+    plugin->screenshot_button = NULL;
+    plugin->settings_button = NULL;
+    plugin->lock_button = NULL;
+    plugin->power_button = NULL;
     plugin->volume_scale = NULL;
     plugin->volume_icon = NULL;
     plugin->audio = NULL;
@@ -1153,7 +1159,13 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
             gtk_widget_set_visual(plugin->popover, rgba_visual);
     }
 
-    GtkWidget *content = extras_menu_popover_content_new(&plugin->volume_scale,
+    GtkWidget *content = extras_menu_popover_content_new(&plugin->battery_label,
+                                                           &plugin->battery_icon,
+                                                           &plugin->screenshot_button,
+                                                           &plugin->settings_button,
+                                                           &plugin->lock_button,
+                                                           &plugin->power_button,
+                                                           &plugin->volume_scale,
                                                            &plugin->volume_icon,
                                                            &plugin->brightness_scale,
                                                            &plugin->bluetooth_toggle,

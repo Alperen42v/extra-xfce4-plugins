@@ -34,6 +34,22 @@ static const gchar *EXTRAS_MENU_CSS =
     "  border-radius: 14px;"
     "  padding: 8px 14px;"
     "}"
+    /* Top bar: battery badge is a small pill, quick-action buttons are
+     * plain icon buttons (no pill background) so they read as
+     * lightweight/secondary next to the battery badge and the pill
+     * grid below -- matches the mockup, where these are unadorned
+     * icons rather than filled buttons. */
+    ".extras-menu-battery-badge {"
+    "  border-radius: 10px;"
+    "  padding: 4px 10px;"
+    "  background-color: alpha(@theme_fg_color, 0.08);"
+    "}"
+    ".extras-menu-top-bar-button {"
+    "  border-radius: 8px;"
+    "  padding: 4px;"
+    "  min-width: 0;"
+    "  min-height: 0;"
+    "}"
     ".extras-menu-popover {"
     "  padding: 10px;"
     "  border-radius: 12px;"
@@ -250,6 +266,97 @@ extras_menu_make_pill_expander(const gchar *icon_name, const gchar *label_text)
     return button;
 }
 
+/* Top status bar: a battery percentage badge on the left, a row of
+ * small icon-only quick-action buttons on the right (screenshot,
+ * settings, lock, power) -- mirrors the mockup's topmost row. Purely
+ * visual for now: the battery percentage is a fixed placeholder and
+ * the buttons don't do anything yet, both wired up as a follow-up once
+ * this shape is approved. out_battery_label and out_battery_icon (both
+ * optional) hand back the badge's pieces so a later pass can drive
+ * them from a real UPower backend; the four button out-params
+ * similarly hand back the action buttons themselves for wiring up
+ * click handlers later. */
+static GtkWidget *
+extras_menu_make_top_bar(GtkWidget **out_battery_label,
+                          GtkWidget **out_battery_icon,
+                          GtkWidget **out_screenshot_button,
+                          GtkWidget **out_settings_button,
+                          GtkWidget **out_lock_button,
+                          GtkWidget **out_power_button)
+{
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+
+    /* --- left: battery badge (icon + percentage), pill-shaped --- */
+    GtkWidget *battery_badge = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    extras_menu_apply_css(battery_badge);
+    gtk_style_context_add_class(gtk_widget_get_style_context(battery_badge),
+                                 "extras-menu-battery-badge");
+
+    GtkWidget *battery_icon = gtk_image_new_from_icon_name("battery-good-charging-symbolic",
+                                                             GTK_ICON_SIZE_BUTTON);
+    GtkWidget *battery_label = gtk_label_new("100%");
+
+    gtk_box_pack_start(GTK_BOX(battery_badge), battery_icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(battery_badge), battery_label, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(bar), battery_badge, FALSE, FALSE, 0);
+
+    /* Spacer so the quick-action buttons sit at the right edge
+     * regardless of the battery badge's width. */
+    GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(spacer, TRUE);
+    gtk_box_pack_start(GTK_BOX(bar), spacer, TRUE, TRUE, 0);
+
+    /* --- right: quick-action icon buttons --- */
+    GtkWidget *screenshot_button = gtk_button_new();
+    extras_menu_apply_css(screenshot_button);
+    gtk_style_context_add_class(gtk_widget_get_style_context(screenshot_button),
+                                 "extras-menu-top-bar-button");
+    gtk_container_add(GTK_CONTAINER(screenshot_button),
+                       gtk_image_new_from_icon_name("camera-photo-symbolic", GTK_ICON_SIZE_BUTTON));
+
+    GtkWidget *settings_button = gtk_button_new();
+    extras_menu_apply_css(settings_button);
+    gtk_style_context_add_class(gtk_widget_get_style_context(settings_button),
+                                 "extras-menu-top-bar-button");
+    gtk_container_add(GTK_CONTAINER(settings_button),
+                       gtk_image_new_from_icon_name("preferences-system-symbolic", GTK_ICON_SIZE_BUTTON));
+
+    GtkWidget *lock_button = gtk_button_new();
+    extras_menu_apply_css(lock_button);
+    gtk_style_context_add_class(gtk_widget_get_style_context(lock_button),
+                                 "extras-menu-top-bar-button");
+    gtk_container_add(GTK_CONTAINER(lock_button),
+                       gtk_image_new_from_icon_name("system-lock-screen-symbolic", GTK_ICON_SIZE_BUTTON));
+
+    GtkWidget *power_button = gtk_button_new();
+    extras_menu_apply_css(power_button);
+    gtk_style_context_add_class(gtk_widget_get_style_context(power_button),
+                                 "extras-menu-top-bar-button");
+    gtk_container_add(GTK_CONTAINER(power_button),
+                       gtk_image_new_from_icon_name("system-shutdown-symbolic", GTK_ICON_SIZE_BUTTON));
+
+    gtk_box_pack_start(GTK_BOX(bar), screenshot_button, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bar), settings_button, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bar), lock_button, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bar), power_button, FALSE, FALSE, 0);
+
+    if (out_battery_label != NULL)
+        *out_battery_label = battery_label;
+    if (out_battery_icon != NULL)
+        *out_battery_icon = battery_icon;
+    if (out_screenshot_button != NULL)
+        *out_screenshot_button = screenshot_button;
+    if (out_settings_button != NULL)
+        *out_settings_button = settings_button;
+    if (out_lock_button != NULL)
+        *out_lock_button = lock_button;
+    if (out_power_button != NULL)
+        *out_power_button = power_button;
+
+    return bar;
+}
+
 /* Generic full-width slider row with a leading icon, used for both
  * the volume row and the brightness row -- same visual shape, only
  * the icon and starting value differ. The scale itself is handed back
@@ -283,7 +390,10 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWi
 }
 
 GtkWidget *
-extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_icon,
+extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_icon,
+                                 GtkWidget **screenshot_button, GtkWidget **settings_button,
+                                 GtkWidget **lock_button, GtkWidget **power_button,
+                                 GtkWidget **volume_scale, GtkWidget **volume_icon,
                                  GtkWidget **brightness_scale, GtkWidget **bluetooth_toggle,
                                  GtkWidget **network_toggle, GtkWidget **network_pill_label,
                                  GtkWidget **network_pill_icon, GtkWidget **network_expand_button,
@@ -296,6 +406,13 @@ extras_menu_popover_content_new(GtkWidget **volume_scale, GtkWidget **volume_ico
     gtk_style_context_add_class(gtk_widget_get_style_context(root),
                                  "extras-menu-popover");
     gtk_widget_set_size_request(root, 260, -1);
+
+    /* --- top status bar: battery badge + quick-action buttons --- */
+    gtk_box_pack_start(GTK_BOX(root),
+                        extras_menu_make_top_bar(battery_label, battery_icon,
+                                                  screenshot_button, settings_button,
+                                                  lock_button, power_button),
+                        FALSE, FALSE, 0);
 
     /* --- volume slider row --- */
     GtkWidget *vol_scale = NULL;

@@ -6,20 +6,30 @@
 G_BEGIN_DECLS
 
 /*
- * Builds the full dropdown content (volume + brightness sliders, then
- * the pill grid, then a hidden-by-default Wi-Fi network list). The
- * root widget is ready to be placed inside any GtkContainer via
+ * Builds the full dropdown content: a top status bar (battery badge +
+ * quick-action buttons), then volume + brightness sliders, then the
+ * pill grid, then a hidden-by-default Wi-Fi network list. The root
+ * widget is ready to be placed inside any GtkContainer via
  * gtk_container_add() -- currently a plain GtkWindow (see
  * extras-menu.h for why), previously a GtkPopover; this function
- * doesn't care which. The volume_scale and brightness_scale out-params
- * give the caller (extras-menu.c) handles to the two sliders so they
- * can be wired up to real backends (PulseAudio/PipeWire for volume,
- * brightnessctl for brightness) -- both to push user-driven changes
- * out, and to reflect external changes back in. volume_icon hands back
- * the volume row's icon GtkImage, so the caller can swap it to a
- * "muted" icon at 0%/when muted. bluetooth_toggle hands back the
- * Bluetooth pill's GtkToggleButton so the caller can wire it up to the
- * BlueZ backend the same way.
+ * doesn't care which.
+ *
+ * battery_label/battery_icon hand back the top bar's battery badge
+ * pieces -- currently a fixed "100%" placeholder with a static icon,
+ * not yet backed by a real UPower reading. screenshot_button/
+ * settings_button/lock_button/power_button hand back the four
+ * quick-action buttons in the top bar's top-right corner -- plain
+ * icon buttons with no click behavior wired up yet.
+ *
+ * The volume_scale and brightness_scale out-params give the caller
+ * (extras-menu.c) handles to the two sliders so they can be wired up
+ * to real backends (PulseAudio/PipeWire for volume, brightnessctl for
+ * brightness) -- both to push user-driven changes out, and to reflect
+ * external changes back in. volume_icon hands back the volume row's
+ * icon GtkImage, so the caller can swap it to a "muted" icon at
+ * 0%/when muted. bluetooth_toggle hands back the Bluetooth pill's
+ * GtkToggleButton so the caller can wire it up to the BlueZ backend
+ * the same way.
  *
  * The network pill is split into two independently clickable regions
  * (see extras_menu_make_split_pill() in popover.c): network_toggle is
@@ -47,9 +57,16 @@ G_BEGIN_DECLS
  *
  * The rest of the pill grid (Dark Mode/Aeroplane Mode/Balanced/...)
  * remains purely visual for now; only the sliders, the Bluetooth
- * toggle, and the network pill are backend-aware at this stage.
+ * toggle, and the network pill are backend-aware at this stage. The
+ * top bar is purely visual in its entirety for now.
  */
-GtkWidget *extras_menu_popover_content_new(GtkWidget **volume_scale,
+GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
+                                            GtkWidget **battery_icon,
+                                            GtkWidget **screenshot_button,
+                                            GtkWidget **settings_button,
+                                            GtkWidget **lock_button,
+                                            GtkWidget **power_button,
+                                            GtkWidget **volume_scale,
                                             GtkWidget **volume_icon,
                                             GtkWidget **brightness_scale,
                                             GtkWidget **bluetooth_toggle,

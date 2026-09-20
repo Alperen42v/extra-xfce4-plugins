@@ -36,6 +36,18 @@ struct _ExtrasMenuPlugin
      * gtk_window_set_keep_above() sidesteps that entirely. */
     GtkWidget *popover;
 
+    /* Top status bar inside the popover: battery badge + four
+     * quick-action buttons (screenshot/settings/lock/power). Purely
+     * visual for now -- no backend behind any of these yet, so no
+     * guard/cache fields alongside them the way the other widgets
+     * below have. */
+    GtkWidget *battery_label;
+    GtkWidget *battery_icon;
+    GtkWidget *screenshot_button;
+    GtkWidget *settings_button;
+    GtkWidget *lock_button;
+    GtkWidget *power_button;
+
     /* volume slider inside the popover, its icon (swapped to a muted
      * variant at 0%/when muted), and the backend driving both */
     GtkWidget *volume_scale;
