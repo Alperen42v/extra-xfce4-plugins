@@ -3,6 +3,8 @@
 #include "preferences.h"
 #include "network.h"
 
+#include <gio/gio.h>
+
 /* Applies a network status (kind + IP) to the pill's label/icon.
  * Shared by on_network_status_changed() (the normal path) and the end
  * of construct() (to catch the case where the backend's first
@@ -1061,6 +1063,32 @@ on_bluetooth_toggle_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
                                        gtk_toggle_button_get_active(button));
 }
 
+/* Fired when the power button in the top bar is clicked. Launches
+ * xfce4-session-logout, XFCE's own logout/restart/shutdown dialog --
+ * same tool the session's own logout menu entry uses, so this gets
+ * confirmation prompts, other-user-session warnings etc. for free
+ * rather than us having to reimplement any of that. Fire-and-forget:
+ * GSubprocess without any pipes, so we don't need to track its exit
+ * status (the dialog runs as its own process, independent of the
+ * panel). */
+static void
+on_power_button_clicked(GtkButton *button, gpointer user_data)
+{
+    (void) button;
+    (void) user_data;
+
+    GError *error = NULL;
+    GSubprocess *proc = g_subprocess_new(G_SUBPROCESS_FLAGS_NONE, &error,
+                                          "xfce4-session-logout", NULL);
+    if (proc == NULL)
+    {
+        g_clear_error(&error);
+        return;
+    }
+
+    g_object_unref(proc);
+}
+
 /* Fired when the user picks "Properties..." from the plugin's
  * right-click panel menu (enabled via
  * xfce_panel_plugin_menu_show_configure() in construct() below). */
@@ -1184,6 +1212,12 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
      * on_network_row_activated()/on_connect_result() to update a
      * specific row's status label without a linear search. */
     plugin->network_row_by_ssid = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+    if (plugin->power_button != NULL)
+    {
+        g_signal_connect(plugin->power_button, "clicked",
+                          G_CALLBACK(on_power_button_clicked), plugin);
+    }
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives
