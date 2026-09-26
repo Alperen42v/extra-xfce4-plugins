@@ -41,21 +41,10 @@ extras_menu_preferences_show(XfcePanelPlugin *panel_plugin)
     gtk_style_context_add_class(gtk_widget_get_style_context(version_label), "dim-label");
     gtk_box_pack_start(GTK_BOX(box), version_label, FALSE, FALSE, 0);
 
-    /* --- release note -------------------------------------------------
-     * This is a placeholder for now: as the plugin grows (real toggles
-     * for Bluetooth/network/dark mode, color customization, etc.),
-     * actual per-user settings controls will replace/join this note.
-     * Kept as a plain, non-scrolling label since the current note is
-     * short; switch to a GtkScrolledWindow if it grows substantially. */
     GtkWidget *separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_pack_start(GTK_BOX(box), separator, FALSE, FALSE, 4);
 
-    GtkWidget *note_label = gtk_label_new(
-        "This is an early alpha build. Only the volume and brightness "
-        "sliders are wired up to real system controls so far -- the "
-        "rest of the toggles (Bluetooth, network, Dark Mode, Aeroplane "
-        "Mode) are still visual placeholders. More settings will appear "
-        "on this screen as those are implemented.");
+    GtkWidget *note_label = gtk_label_new("Customization options will be added :) Don't worry");
     gtk_label_set_line_wrap(GTK_LABEL(note_label), TRUE);
     gtk_label_set_xalign(GTK_LABEL(note_label), 0.0);
     gtk_widget_set_size_request(note_label, 320, -1);

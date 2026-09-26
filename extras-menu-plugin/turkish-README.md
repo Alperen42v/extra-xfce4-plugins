@@ -3,13 +3,15 @@
 
 XFCE4 panel eklentisi. GNOME'un "hızlı ayarlar" menüsüne benzer, panelde
 tek bir düğmeyle açılan bir açılır pencere sunar: ses ve ekran parlaklığı
-kaydırıcıları, ayrıca Bluetooth / Dark Mode / Aeroplane Mode gibi hızlı
+kaydırıcıları, ayrıca Bluetooth / Wifi/ethernet / Aeroplane Mode gibi hızlı
 geçiş düğmeleri.
 
-Şu an alpha aşamasında. Ses ve parlaklık kaydırıcıları
-gerçek sistem denetimlerine bağlı; geri kalan düğmeler henüz görsel
-yer tutucu.
+Şuan alpha aşamasındadır ayrıca çalışan tuşlar şunlar Wifi/ethernet, parlaklık kontrolü, ses kontrolü, yukarıdaki küçük düğmeler (güç tuşu, screenshot tuşu vb) **daha hala ekleniyor teker teker**
 
+## Görseller
+![adwaita elementary-icons](./screenshots/screenshot0-adwaita-elementary-icon.png)
+![big-sur-dark](./screenshots/screenshot1-bigsur-dark.png)
+![arc-dark_kora-icons](./screenshots/screenshot2-arc-dark_kora-icons.png)
 ## Bağımlılıklar
 
 ### Arch Linux
@@ -37,7 +39,7 @@ make
 make install
 ```
 
-Kurulumdan sonra paneli yeniden başlat:
+Kurulumdan sonra paneli yeniden başlatmak (tavsiye edilir):
 
 ```bash
 xfce4-panel -r
@@ -47,8 +49,6 @@ Panelde sağ tık → Panel → Öğe Ekle... üzerinden "Extras Menu" olarak ek
 
 ## Notlar
 
-1.**Bluetooth toggle test edilemedi:** Geliştirici donanımında Bluetooth
-adaptörü bulunmadığı için adaptör açma/kapama backend'i gerçek donanımda uçtan uca test edilemedi.
-Kod mantığı sağlam ancak gerçek bir
-Bluetooth adaptörü olan biri tarafından doğrulanması gerekiyor. Sorun
-yaşarsan issue açabilirsin.
+1. şuan ismi extras menu ama gelecekte Gnome-quick-settings veya Quick-settings-Gnome-style gibi bişi yapmayı planlıyorum.
+2. gelecekte install.sh yapacağım ama şuan kod mantığındayım ve geliştirmeye devam ediyorum. (yakın zamanda yapacağım.)
+3. bazı şeyleri örneğin dark mode veya balanced rasgele ekledim gelecekte daha geliştiğinde varsayılan gelen düzeni daha kullanışlı yapmayı planlıyorum.

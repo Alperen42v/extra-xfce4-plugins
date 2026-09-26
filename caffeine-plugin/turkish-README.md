@@ -107,7 +107,7 @@ Kare olmayan kaynak görüntüler sığdırılmak için yatay/dikey olarak ezile
 bu nedenle kare görüntüler kullanmanız önerilir.
 
 ## Tercihler
-
+![prefences screenshot](./screenshots/screenshot0-prefences.png)
 Panelde eklentiye sağ tıklayın → **Özellikler** seçeneğine tıklayarak
 Caffeine'in tercih penceresini açabilirsiniz.
 
@@ -171,19 +171,5 @@ Tamamen temiz bir kurulum istiyorsanız klasörü kendiniz silebilirsiniz:
 rm -rf ~/.config/xfce4-caffeine-plugin
 ```
 
-## Notlar / Sonraki Adımlar
-
-- `Inhibit` başarısız olursa (örneğin çalışan bir ekran koruyucu DBus servisi
-  yoksa), eklenti görsel olarak **AÇIK** durumuna geçmez ve çalışıyormuş gibi
-  davranmak yerine bir hata araç ipucu gösterir.
-- Tercihler (kilit döngüsü aralığı) `caffeine-prefs.c` /
-  `caffeine-prefs.h` dosyalarında bulunur.
-- Özel simge yükleme işlemi `caffeine-icons.c` /
-  `caffeine-icons.h` dosyalarında bulunur.
-- Bu iki bölüm `caffeine.c` dosyasından ayrı tutulmuştur. Böylece temel
-  engelleme/yaşam döngüsü mantığı daha düzenli kalır.
-- İleride düşünülen fikirler:
-  - Sistem askıya alma/devam ettirme işlemlerinden sonra Caffeine'i otomatik olarak yeniden etkinleştirmek.
-  - Sabit klasör yerine Özellikler penceresine simge seçmek için dosya seçici eklemek.
-  - Özel kilitleme/ekran kapatma komutları gibi daha fazla tercih seçeneği eklemek.
-  - Tercihler arayüzünü yerelleştirmek (şimdilik yalnızca İngilizce).
+## Notlar
+1. dil desteği ekleyeceğim (ispanyolca türkçe almanca rusca çince japonca korece türkçe)

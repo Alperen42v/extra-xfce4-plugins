@@ -90,7 +90,7 @@ sharp, while upscaling a smaller one gets blurry. Non-square source
 images get squashed to fit, so keep them square.
 
 ## Preferences
-
+![prefences screenshot](./screenshots/screenshot0-prefences.png)
 Right-click the plugin in the panel → **Properties** to open Caffeine's
 preferences dialog.
 
@@ -133,15 +133,4 @@ contain icons you customized. Delete it yourself if you want a clean
 slate: `rm -rf ~/.config/xfce4-caffeine-plugin`
 
 ## Notes / next steps
-
-- If `Inhibit` fails (e.g. no screensaver DBus service running), the
-  plugin will not switch to the "on" visual state and will show an
-  error tooltip instead of silently pretending it worked.
-- Preferences (lock-cycle interval) live in `caffeine-prefs.c` /
-  `caffeine-prefs.h`; custom icon loading lives in `caffeine-icons.c` /
-  `caffeine-icons.h` — both kept separate from `caffeine.c` so the core
-  inhibit/lifecycle logic stays uncluttered.
-- Ideas for later: auto re-enable caffeine on system suspend/resume,
-  a file picker for icons in the Properties dialog instead of the
-  fixed folder, more preferences (custom lock/blank commands),
-  localize the preferences UI (English-only for now).
+1. I will add language support (Spanish, Turkish, German, Russian, Chinese, Japanese, Korean, Turkish)

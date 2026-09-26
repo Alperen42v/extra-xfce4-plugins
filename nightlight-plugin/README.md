@@ -44,12 +44,5 @@ the settings dialog (strength, schedule, format, transition duration).
 make uninstall
 ```
 
-## Notes / known limitations
-
-- On multi-monitor setups the same temperature is applied to every CRTC.
-- Don't run another gamma tool (e.g. `redshift`/`gammastep`) at the same
-  time — the settings will conflict.
-- XFCE is currently X11 (Xorg) based; this plugin requires Xorg (no
-  Wayland support).
-- On exit (`free-data`), the screen is automatically restored to neutral
-  (6500K).
+## Notes
+1. Language support will be added in the future.

@@ -49,12 +49,5 @@ format ve geçiş süresi gibi ayarları değiştirebilirsiniz.
 make uninstall
 ```
 
-## Notlar / Bilinen sınırlamalar
-
-- Çoklu monitör kurulumlarında aynı renk sıcaklığı her CRTC'ye uygulanır.
-- Aynı anda başka bir gamma aracı (örneğin `redshift` veya `gammastep`)
-  çalıştırmayın; ayarlar birbiriyle çakışacaktır.
-- XFCE şu anda X11 (Xorg) tabanlıdır; bu eklenti Xorg gerektirir
-  (Wayland desteği yoktur).
-- Çıkış sırasında (`free-data`) ekran otomatik olarak nötr renk sıcaklığına
-  (6500K) geri döndürülür.
+## Notlar
+1. Dil desteği eklenecek gelecekte.
