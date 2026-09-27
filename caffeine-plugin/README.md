@@ -21,13 +21,10 @@ make
 make install
 ```
 
-This installs:
-- `libcaffeine.so` into `$(pkg-config --variable=libdir libxfce4panel-2.0)/xfce4/panel-plugins/`
-- `caffeine-plugin.desktop` into `$(pkg-config --variable=datadir libxfce4panel-2.0)/xfce4/panel-plugins/`
-- the bundled default icons (from `icons/` in this repo) into `~/.config/xfce4-caffeine-plugin/icons/`,
-  without overwriting any icon file you've already customized there
 
-Then restart the panel so it picks up the new plugin:
+- the bundled default icons (from `icons/` in this repo) into `~/.config/xfce4-caffeine-plugin/icons/` without overwriting any icon file you've already customized there.
+
+Then restart the panel so it picks up the new plugin(recommend):
 
 ```bash
 xfce4-panel -r
@@ -85,21 +82,15 @@ each frame as a separate PNG into this folder.
 panel's icon area in pixels, so any source size works, but for the
 sharpest result **export at 64×64px**. Panel icon areas typically land
 somewhere in the 22–48px range depending on panel size/DPI, so 64px
-gives headroom above all of them — downscaling a larger source stays
-sharp, while upscaling a smaller one gets blurry. Non-square source
-images get squashed to fit, so keep them square.
+gives headroom above all of them.
 
 ## Preferences
 ![prefences screenshot](./screenshots/screenshot0-prefences.png)
+
 Right-click the plugin in the panel → **Properties** to open Caffeine's
 preferences dialog.
 
-**Lock cycle interval:** while Caffeine is ON, it can lock the screen
-(`xflock4`) and blank the monitor (DPMS off, ~7s later) on a repeating
-schedule of its own — 15 / 30 / 60 minutes, or a custom number of
-minutes — then keep going. This is independent of how long Caffeine
-stays on: it doesn't turn Caffeine off, and the screensaver/DPMS inhibit
-stays in effect the whole time. Set it to **Never** (the default) for
+**Never** (the default) for
 the original behaviour: stay awake indefinitely with no self-triggered
 locking.
 

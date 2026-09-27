@@ -21,15 +21,11 @@ make
 make install
 ```
 
-Bu işlem şunları kurar:
-
-- `libcaffeine.so` → `$(pkg-config --variable=libdir libxfce4panel-2.0)/xfce4/panel-plugins/`
-- `caffeine-plugin.desktop` → `$(pkg-config --variable=datadir libxfce4panel-2.0)/xfce4/panel-plugins/`
-- Depodaki `icons/` klasöründe bulunan varsayılan simgeler → `~/.config/xfce4-caffeine-plugin/icons/`
+klasöründe bulunan varsayılan simgeler → `~/.config/xfce4-caffeine-plugin/icons/`
 
 Zaten burada özelleştirdiğiniz herhangi bir simge dosyasının üzerine yazılmaz.
 
-Ardından yeni eklentinin yüklenmesi için paneli yeniden başlatın:
+Ardından yeni eklentinin yüklenmesi için paneli yeniden başlatın(tavsiye edilir):
 
 ```bash
 xfce4-panel -r
@@ -98,16 +94,12 @@ olarak uyacak şekilde ölçeklendirir. Bu nedenle kaynak görüntünün boyutu
 teknik olarak fark etmez. Ancak en keskin sonucu elde etmek için
 **64×64 piksel** olarak dışa aktarmanız önerilir.
 
-Panel simge alanları panel boyutu ve DPI ayarlarına bağlı olarak genellikle
-22–48 piksel civarındadır. Bu nedenle 64 piksel, bunların tamamı için yeterli
-pay bırakır. Daha büyük bir kaynak küçültüldüğünde netliğini korur; daha küçük
-bir kaynak büyütüldüğünde bulanıklaşır.
-
 Kare olmayan kaynak görüntüler sığdırılmak için yatay/dikey olarak ezilebilir,
 bu nedenle kare görüntüler kullanmanız önerilir.
 
 ## Tercihler
 ![prefences screenshot](./screenshots/screenshot0-prefences.png)
+
 Panelde eklentiye sağ tıklayın → **Özellikler** seçeneğine tıklayarak
 Caffeine'in tercih penceresini açabilirsiniz.
 
