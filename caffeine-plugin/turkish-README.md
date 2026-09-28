@@ -164,4 +164,3 @@ rm -rf ~/.config/xfce4-caffeine-plugin
 ```
 
 ## Notlar
-1. dil desteği ekleyeceğim (ispanyolca türkçe almanca rusca çince japonca korece türkçe)

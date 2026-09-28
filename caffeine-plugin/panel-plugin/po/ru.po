@@ -1,0 +1,126 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: xfce4-caffeine-plugin\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#: panel-plugin/caffeine.c:502
+msgid "Caffeine: failed to inhibit screensaver/power manager (DBus error)"
+msgstr ""
+"Caffeine: не удалось запретить заставку/управление питанием (ошибка DBus)"
+
+#: panel-plugin/caffeine.c:515
+msgid "Caffeine: ON — screen will stay awake (click to disable)"
+msgstr "Caffeine: ВКЛ — экран не будет гаснуть (нажмите, чтобы отключить)"
+
+#: panel-plugin/caffeine.c:532 panel-plugin/caffeine.c:763
+msgid "Caffeine: OFF — click to keep the screen awake"
+msgstr "Caffeine: ВЫКЛ — нажмите, чтобы экран не гас"
+
+#: panel-plugin/caffeine-prefs.c:181
+msgid ""
+"Uses the Caffeine icons of your current icon theme. If the theme doesn't "
+"provide them, Caffeine's own icons are used instead."
+msgstr ""
+"Использует значки Caffeine из текущей темы значков. Если в теме их нет, "
+"вместо них используются собственные значки Caffeine."
+
+#: panel-plugin/caffeine-prefs.c:184
+msgid ""
+"Always uses the icons bundled with Caffeine (or your own PNGs in "
+"~/.config/xfce4-caffeine-plugin/icons)."
+msgstr ""
+"Всегда использует значки, входящие в состав Caffeine (или ваши PNG-файлы в "
+"~/.config/xfce4-caffeine-plugin/icons)."
+
+#: panel-plugin/caffeine-prefs.c:189
+msgid "It's recommended to pick the theme that matches your system."
+msgstr "Рекомендуется выбрать тему, соответствующую вашей системе."
+
+#: panel-plugin/caffeine-prefs.c:259
+msgid "Caffeine Preferences"
+msgstr "Параметры Caffeine"
+
+#: panel-plugin/caffeine-prefs.c:262
+msgid "_Cancel"
+msgstr "_Отмена"
+
+#: panel-plugin/caffeine-prefs.c:263
+msgid "_OK"
+msgstr "_ОК"
+
+#: panel-plugin/caffeine-prefs.c:286
+msgid ""
+"While Caffeine is on, automatically lock the\n"
+"screen and blank the monitor every:"
+msgstr ""
+"Пока Caffeine включён, автоматически блокировать\n"
+"экран и отключать монитор каждые:"
+
+#: panel-plugin/caffeine-prefs.c:290
+msgid "Never (stay awake indefinitely)"
+msgstr "Никогда (не гасить экран неограниченно)"
+
+#: panel-plugin/caffeine-prefs.c:371
+msgid "5 minutes"
+msgstr "5 минут"
+
+#: panel-plugin/caffeine-prefs.c:375
+msgid "10 minutes"
+msgstr "10 минут"
+
+#: panel-plugin/caffeine-prefs.c:294 panel-plugin/caffeine-prefs.c:379
+msgid "15 minutes"
+msgstr "15 минут"
+
+#: panel-plugin/caffeine-prefs.c:298 panel-plugin/caffeine-prefs.c:383
+msgid "30 minutes"
+msgstr "30 минут"
+
+#: panel-plugin/caffeine-prefs.c:302
+msgid "60 minutes"
+msgstr "60 минут"
+
+#: panel-plugin/caffeine-prefs.c:306 panel-plugin/caffeine-prefs.c:387
+msgid "Custom:"
+msgstr "Другое:"
+
+#: panel-plugin/caffeine-prefs.c:315 panel-plugin/caffeine-prefs.c:397
+msgid "minutes"
+msgstr "минут"
+
+#: panel-plugin/caffeine-prefs.c:322
+msgid "Panel icons:"
+msgstr "Значки панели:"
+
+#: panel-plugin/caffeine-prefs.c:326
+msgid "Follow system icon theme (default)"
+msgstr "Использовать тему значков системы (по умолчанию)"
+
+#: panel-plugin/caffeine-prefs.c:331
+msgid "Caffeine's own icons"
+msgstr "Собственные значки Caffeine"
+
+#: panel-plugin/caffeine-prefs.c:340
+msgid "Icon variant:"
+msgstr "Вариант значков:"
+
+#: panel-plugin/caffeine-prefs.c:344
+msgid "Auto (match system theme)"
+msgstr "Автоматически (как в системной теме)"
+
+#: panel-plugin/caffeine-prefs.c:349
+msgid "Light system theme"
+msgstr "Светлая тема системы"
+
+#: panel-plugin/caffeine-prefs.c:354
+msgid "Dark system theme"
+msgstr "Тёмная тема системы"
+
+#: panel-plugin/caffeine-prefs.c:364
+msgid "Turn off screen after (does not lock the session)"
+msgstr "Выключать экран через (не блокирует сеанс)"

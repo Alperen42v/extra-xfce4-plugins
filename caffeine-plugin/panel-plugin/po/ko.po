@@ -1,0 +1,123 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: xfce4-caffeine-plugin\n"
+"Language: ko\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: panel-plugin/caffeine.c:502
+msgid "Caffeine: failed to inhibit screensaver/power manager (DBus error)"
+msgstr "Caffeine: 화면 보호기/전원 관리자를 억제하지 못했습니다 (DBus 오류)"
+
+#: panel-plugin/caffeine.c:515
+msgid "Caffeine: ON — screen will stay awake (click to disable)"
+msgstr "Caffeine: 켜짐 — 화면이 계속 켜져 있습니다 (클릭하여 끄기)"
+
+#: panel-plugin/caffeine.c:532 panel-plugin/caffeine.c:763
+msgid "Caffeine: OFF — click to keep the screen awake"
+msgstr "Caffeine: 꺼짐 — 클릭하여 화면을 계속 켜 두기"
+
+#: panel-plugin/caffeine-prefs.c:181
+msgid ""
+"Uses the Caffeine icons of your current icon theme. If the theme doesn't "
+"provide them, Caffeine's own icons are used instead."
+msgstr "현재 아이콘 테마의 Caffeine 아이콘을 사용합니다. 테마에 없으면 대신 Caffeine 자체 아이콘을 사용합니다."
+
+#: panel-plugin/caffeine-prefs.c:184
+msgid ""
+"Always uses the icons bundled with Caffeine (or your own PNGs in "
+"~/.config/xfce4-caffeine-plugin/icons)."
+msgstr ""
+"항상 Caffeine에 포함된 아이콘(또는 ~/.config/xfce4-caffeine-plugin/icons의 사용자 PNG)을 "
+"사용합니다."
+
+#: panel-plugin/caffeine-prefs.c:189
+msgid "It's recommended to pick the theme that matches your system."
+msgstr "시스템과 일치하는 테마를 선택하는 것을 권장합니다."
+
+#: panel-plugin/caffeine-prefs.c:259
+msgid "Caffeine Preferences"
+msgstr "Caffeine 환경 설정"
+
+#: panel-plugin/caffeine-prefs.c:262
+msgid "_Cancel"
+msgstr "취소(_C)"
+
+#: panel-plugin/caffeine-prefs.c:263
+msgid "_OK"
+msgstr "확인(_O)"
+
+#: panel-plugin/caffeine-prefs.c:286
+msgid ""
+"While Caffeine is on, automatically lock the\n"
+"screen and blank the monitor every:"
+msgstr ""
+"Caffeine이 켜져 있는 동안 다음 간격마다 자동으로\n"
+"화면을 잠그고 모니터를 끕니다:"
+
+#: panel-plugin/caffeine-prefs.c:290
+msgid "Never (stay awake indefinitely)"
+msgstr "안 함 (무기한 켜 두기)"
+
+#: panel-plugin/caffeine-prefs.c:371
+msgid "5 minutes"
+msgstr "5분"
+
+#: panel-plugin/caffeine-prefs.c:375
+msgid "10 minutes"
+msgstr "10분"
+
+#: panel-plugin/caffeine-prefs.c:294 panel-plugin/caffeine-prefs.c:379
+msgid "15 minutes"
+msgstr "15분"
+
+#: panel-plugin/caffeine-prefs.c:298 panel-plugin/caffeine-prefs.c:383
+msgid "30 minutes"
+msgstr "30분"
+
+#: panel-plugin/caffeine-prefs.c:302
+msgid "60 minutes"
+msgstr "60분"
+
+#: panel-plugin/caffeine-prefs.c:306 panel-plugin/caffeine-prefs.c:387
+msgid "Custom:"
+msgstr "사용자 지정:"
+
+#: panel-plugin/caffeine-prefs.c:315 panel-plugin/caffeine-prefs.c:397
+msgid "minutes"
+msgstr "분"
+
+#: panel-plugin/caffeine-prefs.c:322
+msgid "Panel icons:"
+msgstr "패널 아이콘:"
+
+#: panel-plugin/caffeine-prefs.c:326
+msgid "Follow system icon theme (default)"
+msgstr "시스템 아이콘 테마 따르기 (기본값)"
+
+#: panel-plugin/caffeine-prefs.c:331
+msgid "Caffeine's own icons"
+msgstr "Caffeine 자체 아이콘"
+
+#: panel-plugin/caffeine-prefs.c:340
+msgid "Icon variant:"
+msgstr "아이콘 변형:"
+
+#: panel-plugin/caffeine-prefs.c:344
+msgid "Auto (match system theme)"
+msgstr "자동 (시스템 테마에 맞춤)"
+
+#: panel-plugin/caffeine-prefs.c:349
+msgid "Light system theme"
+msgstr "밝은 시스템 테마"
+
+#: panel-plugin/caffeine-prefs.c:354
+msgid "Dark system theme"
+msgstr "어두운 시스템 테마"
+
+#: panel-plugin/caffeine-prefs.c:364
+msgid "Turn off screen after (does not lock the session)"
+msgstr "다음 시간 후 화면 끄기 (세션을 잠그지 않음)"

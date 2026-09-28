@@ -499,7 +499,7 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
         if (!caffeine_dbus_inhibit (caffeine))
         {
             gtk_widget_set_tooltip_text (caffeine->button,
-                "Caffeine: failed to inhibit screensaver/power manager (DBus error)");
+                _("Caffeine: failed to inhibit screensaver/power manager (DBus error)"));
             return;
         }
 
@@ -512,7 +512,7 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
         caffeine_screen_off_restart (caffeine);
 
         gtk_widget_set_tooltip_text (caffeine->button,
-            "Caffeine: ON — screen will stay awake (click to disable)");
+            _("Caffeine: ON — screen will stay awake (click to disable)"));
     }
     else
     {
@@ -529,7 +529,7 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
         caffeine_screen_off_stop (caffeine);
 
         gtk_widget_set_tooltip_text (caffeine->button,
-            "Caffeine: OFF — click to keep the screen awake");
+            _("Caffeine: OFF — click to keep the screen awake"));
     }
 
     gtk_widget_queue_draw (caffeine->icon_area);
@@ -583,6 +583,52 @@ caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
     g_free (caffeine->xfconf_channel_name);
     caffeine_icon_set_free (caffeine->icons);
     g_free (caffeine);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Translations                                                           */
+/* ---------------------------------------------------------------------- */
+
+/* Points gettext at the right translation directory and follows the
+ * system language automatically (LANGUAGE / LC_ALL / LC_MESSAGES / LANG,
+ * exactly what the rest of the desktop uses). Runs every time the plugin
+ * loads, so after the system language changes a panel restart (or a new
+ * login) is all it takes.
+ *
+ * Two places are checked, so it works no matter how the plugin was
+ * installed: the user's own directory (~/.local/share/locale, used by
+ * a non-root `make install`) wins if it has a translation for the
+ * current language; otherwise the system directory (LOCALEDIR, used by
+ * `sudo make install` or a package) is used. */
+static void
+caffeine_init_translations (void)
+{
+    const gchar * const *languages = g_get_language_names ();
+    gchar               *user_localedir;
+    const gchar         *localedir = LOCALEDIR;
+    gint                 i;
+
+    user_localedir = g_build_filename (g_get_user_data_dir (), "locale", NULL);
+
+    for (i = 0; languages[i] != NULL; i++)
+    {
+        gchar    *mo_path = g_build_filename (user_localedir, languages[i],
+                                               "LC_MESSAGES", GETTEXT_PACKAGE ".mo", NULL);
+        gboolean  found = g_file_test (mo_path, G_FILE_TEST_IS_REGULAR);
+
+        g_free (mo_path);
+
+        if (found)
+        {
+            localedir = user_localedir;
+            break;
+        }
+    }
+
+    bindtextdomain (GETTEXT_PACKAGE, localedir);
+    bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
+
+    g_free (user_localedir); /* bindtextdomain() keeps its own copy */
 }
 
 /* Reloads the custom icon set at the icon area's current pixel size.
@@ -669,6 +715,9 @@ caffeine_construct (XfcePanelPlugin *plugin)
 {
     CaffeinePlugin *caffeine = g_new0 (CaffeinePlugin, 1);
 
+    /* must run before the first _() call below */
+    caffeine_init_translations ();
+
     caffeine->plugin = plugin;
     caffeine->active = FALSE;
     caffeine->ss_cookie = 0;
@@ -711,7 +760,7 @@ caffeine_construct (XfcePanelPlugin *plugin)
                        G_CALLBACK (on_button_clicked), caffeine);
 
     gtk_widget_set_tooltip_text (caffeine->button,
-        "Caffeine: OFF — click to keep the screen awake");
+        _("Caffeine: OFF — click to keep the screen awake"));
 
     gtk_widget_show_all (caffeine->button);
 

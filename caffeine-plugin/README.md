@@ -124,4 +124,3 @@ contain icons you customized. Delete it yourself if you want a clean
 slate: `rm -rf ~/.config/xfce4-caffeine-plugin`
 
 ## Notes / next steps
-1. I will add language support (Spanish, Turkish, German, Russian, Chinese, Japanese, Korean, Turkish)

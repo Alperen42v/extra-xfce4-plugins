@@ -2,6 +2,18 @@
 #define __CAFFEINE_H__
 
 #include <gtk/gtk.h>
+
+/* gettext: the Makefile passes -DGETTEXT_PACKAGE and -DLOCALEDIR; these
+ * fallbacks only matter if the plugin is built without the Makefile.
+ * GETTEXT_PACKAGE must be defined before including gi18n-lib.h. */
+#ifndef GETTEXT_PACKAGE
+#define GETTEXT_PACKAGE "xfce4-caffeine-plugin"
+#endif
+#ifndef LOCALEDIR
+#define LOCALEDIR "/usr/share/locale"
+#endif
+#include <glib/gi18n-lib.h>
+
 #include <libxfce4panel/xfce-panel-plugin.h>
 #include <libxfce4panel/xfce-panel-convenience.h>
 #include <libxfce4panel/xfce-panel-macros.h>

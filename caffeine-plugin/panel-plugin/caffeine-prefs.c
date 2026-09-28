@@ -178,15 +178,15 @@ typedef struct
 
 /* Shown on hover over the icon source radios */
 #define ICON_SOURCE_SYSTEM_TOOLTIP_TEXT \
-    "Uses the Caffeine icons of your current icon theme. If the theme " \
-    "doesn't provide them, Caffeine's own icons are used instead."
+    N_("Uses the Caffeine icons of your current icon theme. If the theme " \
+       "doesn't provide them, Caffeine's own icons are used instead.")
 #define ICON_SOURCE_PLUGIN_TOOLTIP_TEXT \
-    "Always uses the icons bundled with Caffeine (or your own PNGs in " \
-    "~/.config/xfce4-caffeine-plugin/icons)."
+    N_("Always uses the icons bundled with Caffeine (or your own PNGs in " \
+       "~/.config/xfce4-caffeine-plugin/icons).")
 
 /* Shown on hover over the icon theme radios */
 #define ICON_THEME_TOOLTIP_TEXT \
-    "It's recommended to pick the theme that matches your system."
+    N_("It's recommended to pick the theme that matches your system.")
 
 static void
 on_custom_radio_toggled (GtkToggleButton *radio, gpointer user_data)
@@ -256,11 +256,11 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gboolean      accepted = FALSE;
     gint          response;
 
-    dialog = gtk_dialog_new_with_buttons ("Caffeine Preferences",
+    dialog = gtk_dialog_new_with_buttons (_("Caffeine Preferences"),
                                            GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (plugin))),
                                            GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                                           "_Cancel", GTK_RESPONSE_CANCEL,
-                                           "_OK", GTK_RESPONSE_OK,
+                                           _("_Cancel"), GTK_RESPONSE_CANCEL,
+                                           _("_OK"), GTK_RESPONSE_OK,
                                            NULL);
     gtk_window_set_resizable (GTK_WINDOW (dialog), TRUE);
     gtk_container_set_border_width (GTK_CONTAINER (dialog), 6);
@@ -283,27 +283,27 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_container_add (GTK_CONTAINER (scrolled), vbox);
     gtk_box_pack_start (GTK_BOX (content_area), scrolled, TRUE, TRUE, 0);
 
-    label = gtk_label_new ("While Caffeine is on, automatically lock the\nscreen and blank the monitor every:");
+    label = gtk_label_new (_("While Caffeine is on, automatically lock the\nscreen and blank the monitor every:"));
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
     gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, FALSE, 0);
 
-    w.radio_never = gtk_radio_button_new_with_label (NULL, "Never (stay awake indefinitely)");
+    w.radio_never = gtk_radio_button_new_with_label (NULL, _("Never (stay awake indefinitely)"));
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_never, FALSE, FALSE, 0);
 
     w.radio_15 = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_never), "15 minutes");
+        GTK_RADIO_BUTTON (w.radio_never), _("15 minutes"));
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_15, FALSE, FALSE, 0);
 
     w.radio_30 = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_never), "30 minutes");
+        GTK_RADIO_BUTTON (w.radio_never), _("30 minutes"));
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_30, FALSE, FALSE, 0);
 
     w.radio_60 = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_never), "60 minutes");
+        GTK_RADIO_BUTTON (w.radio_never), _("60 minutes"));
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_60, FALSE, FALSE, 0);
 
     w.radio_custom = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_never), "Custom:");
+        GTK_RADIO_BUTTON (w.radio_never), _("Custom:"));
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_custom, FALSE, FALSE, 0);
 
     custom_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
@@ -312,24 +312,24 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
 
     w.spin_custom = gtk_spin_button_new_with_range (1, 999, 1);
     gtk_box_pack_start (GTK_BOX (custom_hbox), w.spin_custom, FALSE, FALSE, 0);
-    gtk_box_pack_start (GTK_BOX (custom_hbox), gtk_label_new ("minutes"), FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (custom_hbox), gtk_label_new (_("minutes")), FALSE, FALSE, 0);
 
     g_signal_connect (w.radio_custom, "toggled", G_CALLBACK (on_custom_radio_toggled), &w);
 
     /* separator + icon theme section */
     gtk_box_pack_start (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
 
-    label = gtk_label_new ("Panel icons:");
+    label = gtk_label_new (_("Panel icons:"));
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
     gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, FALSE, 0);
 
-    w.radio_source_system = gtk_radio_button_new_with_label (NULL, "Follow system icon theme (default)");
-    gtk_widget_set_tooltip_text (w.radio_source_system, ICON_SOURCE_SYSTEM_TOOLTIP_TEXT);
+    w.radio_source_system = gtk_radio_button_new_with_label (NULL, _("Follow system icon theme (default)"));
+    gtk_widget_set_tooltip_text (w.radio_source_system, _(ICON_SOURCE_SYSTEM_TOOLTIP_TEXT));
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_source_system, FALSE, FALSE, 0);
 
     w.radio_source_plugin = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_source_system), "Caffeine's own icons");
-    gtk_widget_set_tooltip_text (w.radio_source_plugin, ICON_SOURCE_PLUGIN_TOOLTIP_TEXT);
+        GTK_RADIO_BUTTON (w.radio_source_system), _("Caffeine's own icons"));
+    gtk_widget_set_tooltip_text (w.radio_source_plugin, _(ICON_SOURCE_PLUGIN_TOOLTIP_TEXT));
     gtk_box_pack_start (GTK_BOX (vbox), w.radio_source_plugin, FALSE, FALSE, 0);
 
     /* light/dark variant choice - only applies to Caffeine's own icons */
@@ -337,22 +337,22 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_widget_set_margin_start (w.theme_box, 24);
     gtk_box_pack_start (GTK_BOX (vbox), w.theme_box, FALSE, FALSE, 0);
 
-    label = gtk_label_new ("Icon variant:");
+    label = gtk_label_new (_("Icon variant:"));
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
     gtk_box_pack_start (GTK_BOX (w.theme_box), label, FALSE, FALSE, 0);
 
-    w.radio_theme_auto = gtk_radio_button_new_with_label (NULL, "Auto (match system theme)");
-    gtk_widget_set_tooltip_text (w.radio_theme_auto, ICON_THEME_TOOLTIP_TEXT);
+    w.radio_theme_auto = gtk_radio_button_new_with_label (NULL, _("Auto (match system theme)"));
+    gtk_widget_set_tooltip_text (w.radio_theme_auto, _(ICON_THEME_TOOLTIP_TEXT));
     gtk_box_pack_start (GTK_BOX (w.theme_box), w.radio_theme_auto, FALSE, FALSE, 0);
 
     w.radio_theme_light = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_theme_auto), "Light system theme");
-    gtk_widget_set_tooltip_text (w.radio_theme_light, ICON_THEME_TOOLTIP_TEXT);
+        GTK_RADIO_BUTTON (w.radio_theme_auto), _("Light system theme"));
+    gtk_widget_set_tooltip_text (w.radio_theme_light, _(ICON_THEME_TOOLTIP_TEXT));
     gtk_box_pack_start (GTK_BOX (w.theme_box), w.radio_theme_light, FALSE, FALSE, 0);
 
     w.radio_theme_dark = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_theme_auto), "Dark system theme");
-    gtk_widget_set_tooltip_text (w.radio_theme_dark, ICON_THEME_TOOLTIP_TEXT);
+        GTK_RADIO_BUTTON (w.radio_theme_auto), _("Dark system theme"));
+    gtk_widget_set_tooltip_text (w.radio_theme_dark, _(ICON_THEME_TOOLTIP_TEXT));
     gtk_box_pack_start (GTK_BOX (w.theme_box), w.radio_theme_dark, FALSE, FALSE, 0);
 
     g_signal_connect (w.radio_source_plugin, "toggled", G_CALLBACK (on_source_plugin_toggled), &w);
@@ -361,30 +361,30 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_box_pack_start (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
 
     w.check_screen_off_enabled = gtk_check_button_new_with_label (
-        "Turn off screen after (does not lock the session)");
+        _("Turn off screen after (does not lock the session)"));
     gtk_box_pack_start (GTK_BOX (vbox), w.check_screen_off_enabled, FALSE, FALSE, 0);
 
     w.screen_off_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
     gtk_widget_set_margin_start (w.screen_off_box, 24);
     gtk_box_pack_start (GTK_BOX (vbox), w.screen_off_box, FALSE, FALSE, 0);
 
-    w.radio_screen_off_5 = gtk_radio_button_new_with_label (NULL, "5 minutes");
+    w.radio_screen_off_5 = gtk_radio_button_new_with_label (NULL, _("5 minutes"));
     gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_5, FALSE, FALSE, 0);
 
     w.radio_screen_off_10 = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_screen_off_5), "10 minutes");
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), _("10 minutes"));
     gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_10, FALSE, FALSE, 0);
 
     w.radio_screen_off_15 = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_screen_off_5), "15 minutes");
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), _("15 minutes"));
     gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_15, FALSE, FALSE, 0);
 
     w.radio_screen_off_30 = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_screen_off_5), "30 minutes");
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), _("30 minutes"));
     gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_30, FALSE, FALSE, 0);
 
     w.radio_screen_off_custom = gtk_radio_button_new_with_label_from_widget (
-        GTK_RADIO_BUTTON (w.radio_screen_off_5), "Custom:");
+        GTK_RADIO_BUTTON (w.radio_screen_off_5), _("Custom:"));
     gtk_box_pack_start (GTK_BOX (w.screen_off_box), w.radio_screen_off_custom, FALSE, FALSE, 0);
 
     {
@@ -394,7 +394,7 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
 
         w.spin_screen_off_custom = gtk_spin_button_new_with_range (1, 999, 1);
         gtk_box_pack_start (GTK_BOX (screen_off_custom_hbox), w.spin_screen_off_custom, FALSE, FALSE, 0);
-        gtk_box_pack_start (GTK_BOX (screen_off_custom_hbox), gtk_label_new ("minutes"), FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (screen_off_custom_hbox), gtk_label_new (_("minutes")), FALSE, FALSE, 0);
     }
 
     g_signal_connect (w.radio_screen_off_custom, "toggled",
