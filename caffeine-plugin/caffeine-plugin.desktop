@@ -7,4 +7,12 @@ X-XFCE-Internal=false
 
 Name=Caffeine
 Comment=Keep your screen awake with one click
-Icon=preferences-desktop-screensaver
+Comment[ar]=أبقِ شاشتك مضاءة بنقرة واحدة
+Comment[de]=Bildschirm mit einem Klick eingeschaltet lassen
+Comment[es]=Mantén la pantalla encendida con un solo clic
+Comment[fr]=Gardez votre écran allumé en un clic
+Comment[ja]=ワンクリックで画面をオンのままにします
+Comment[ko]=클릭 한 번으로 화면을 계속 켜 두세요
+Comment[ru]=Не давайте экрану гаснуть одним щелчком
+Comment[tr]=Tek tıkla ekranınızı uyanık tutun
+Icon=caffeine
