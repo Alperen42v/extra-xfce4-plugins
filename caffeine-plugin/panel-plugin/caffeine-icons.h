@@ -3,6 +3,7 @@
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <glib.h>
+#include <gtk/gtk.h>
 
 G_BEGIN_DECLS
 
@@ -17,6 +18,19 @@ typedef enum
     CAFFEINE_ICON_THEME_LIGHT = 1,
     CAFFEINE_ICON_THEME_DARK = 2
 } CaffeineIconTheme;
+
+/*
+ * Where the panel icons come from:
+ *   SYSTEM - the caffeine icons of the current GTK icon theme (default).
+ *            If the theme doesn't ship them, falls back to PLUGIN.
+ *   PLUGIN - Caffeine's own icons: PNGs from the user/system icon
+ *            folders described below, or the built-in Cairo cup.
+ */
+typedef enum
+{
+    CAFFEINE_ICON_SOURCE_SYSTEM = 0,
+    CAFFEINE_ICON_SOURCE_PLUGIN = 1
+} CaffeineIconSource;
 
 /*
  * Custom icon support: users can drop PNGs into a fixed folder and the
@@ -71,6 +85,20 @@ gchar *caffeine_icons_get_system_folder (void);
 /* Resolves AUTO to LIGHT or DARK based on the current GTK theme.
  * LIGHT/DARK are returned unchanged. */
 CaffeineIconTheme caffeine_icons_resolve_theme (CaffeineIconTheme theme);
+
+/* Loads the caffeine on/off icons from the current GTK icon theme,
+ * scaled to target_size x target_size. Several well-known icon name
+ * pairs are tried (see system_icon_pairs in caffeine-icons.c); the first
+ * pair where BOTH the on and off icon exist wins, so the two states
+ * always match. The result has one ON frame (no animation).
+ *
+ * `context` is optional: when given, symbolic icons are recoloured to
+ * its foreground colour so they stay visible on the panel.
+ *
+ * Returns NULL if the theme has no usable pair - the caller should then
+ * fall back to caffeine_icons_load(). Free with caffeine_icon_set_free(). */
+CaffeineIconSet *caffeine_icons_load_from_system_theme (gint target_size,
+                                                        GtkStyleContext *context);
 
 /* Scans the user folder, then the system folder, for the given theme
  * variant and loads whatever is found first, scaled to target_size x

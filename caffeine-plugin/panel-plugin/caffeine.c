@@ -560,6 +560,14 @@ caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
         caffeine->theme_notify_handler_id = 0;
     }
 
+    if (caffeine->icon_theme_changed_handler_id != 0)
+    {
+        GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
+        if (icon_theme != NULL)
+            g_signal_handler_disconnect (icon_theme, caffeine->icon_theme_changed_handler_id);
+        caffeine->icon_theme_changed_handler_id = 0;
+    }
+
     caffeine_lock_cycle_stop (caffeine);
     caffeine_screen_off_stop (caffeine);
 
@@ -588,7 +596,18 @@ caffeine_reload_icons (CaffeinePlugin *caffeine)
         return;
 
     caffeine_icon_set_free (caffeine->icons);
-    caffeine->icons = caffeine_icons_load (caffeine->icon_pixel_size, caffeine->settings.icon_theme);
+    caffeine->icons = NULL;
+
+    /* SYSTEM source: use the icon theme's caffeine icons if it has them;
+     * otherwise (or for the PLUGIN source) use Caffeine's own icons,
+     * which themselves fall back to the Cairo cup */
+    if (caffeine->settings.icon_source == CAFFEINE_ICON_SOURCE_SYSTEM)
+        caffeine->icons = caffeine_icons_load_from_system_theme (
+            caffeine->icon_pixel_size, gtk_widget_get_style_context (caffeine->button));
+
+    if (caffeine->icons == NULL)
+        caffeine->icons = caffeine_icons_load (caffeine->icon_pixel_size, caffeine->settings.icon_theme);
+
     caffeine->icon_frame_index = 0;
     gtk_widget_queue_draw (caffeine->icon_area);
 }
@@ -620,6 +639,19 @@ on_gtk_theme_notify (GObject *settings, GParamSpec *pspec, gpointer user_data)
         caffeine_reload_icons (caffeine);
 }
 
+/* Fires when the GTK icon theme changes or is modified on disk. Only
+ * matters for the SYSTEM icon source. */
+static void
+on_icon_theme_changed (GtkIconTheme *icon_theme, gpointer user_data)
+{
+    CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
+
+    (void) icon_theme;
+
+    if (caffeine->settings.icon_source == CAFFEINE_ICON_SOURCE_SYSTEM)
+        caffeine_reload_icons (caffeine);
+}
+
 static void
 caffeine_configure_plugin (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
 {
@@ -648,6 +680,7 @@ caffeine_construct (XfcePanelPlugin *plugin)
     caffeine->lock_cycle_timer_id = 0;
     caffeine->screen_off_timer_id = 0;
     caffeine->theme_notify_handler_id = 0;
+    caffeine->icon_theme_changed_handler_id = 0;
     caffeine->icon_frame_index = 0;
 
     /* unique per instance so multiple panel copies don't clobber settings */
@@ -699,6 +732,15 @@ caffeine_construct (XfcePanelPlugin *plugin)
             caffeine->theme_notify_handler_id =
                 g_signal_connect (gtk_settings, "notify::gtk-application-prefer-dark-theme",
                                    G_CALLBACK (on_gtk_theme_notify), caffeine);
+    }
+
+    /* keeps the SYSTEM icon source in sync with live icon theme changes */
+    {
+        GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
+        if (icon_theme != NULL)
+            caffeine->icon_theme_changed_handler_id =
+                g_signal_connect (icon_theme, "changed",
+                                   G_CALLBACK (on_icon_theme_changed), caffeine);
     }
 
     caffeine_reload_icons (caffeine);

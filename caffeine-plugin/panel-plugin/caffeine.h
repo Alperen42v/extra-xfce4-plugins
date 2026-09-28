@@ -48,7 +48,8 @@ typedef struct
 {
     CaffeineLockCycleMode mode;
     guint                 custom_minutes; /* only meaningful when mode == CUSTOM, >= 1 */
-    CaffeineIconTheme     icon_theme;     /* which custom icon variant to load */
+    CaffeineIconSource    icon_source;    /* system icon theme vs Caffeine's own icons */
+    CaffeineIconTheme     icon_theme;     /* light/dark variant, only used for Caffeine's own icons */
 
     gboolean              screen_off_enabled;
     CaffeineScreenOffMode screen_off_mode;
@@ -99,6 +100,10 @@ typedef struct
     /* handler id for GtkSettings::notify::gtk-application-prefer-dark-theme,
      * so AUTO icon theme follows live system theme changes. 0 = not connected. */
     gulong     theme_notify_handler_id;
+
+    /* handler id for GtkIconTheme::changed, so the SYSTEM icon source
+     * follows live icon theme changes. 0 = not connected. */
+    gulong     icon_theme_changed_handler_id;
 
 } CaffeinePlugin;
 

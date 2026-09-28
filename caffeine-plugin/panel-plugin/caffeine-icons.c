@@ -109,6 +109,93 @@ folder_has_variant (const gchar *folder, const gchar *variant)
     return found;
 }
 
+/* Icon name pairs looked up in the current GTK icon theme, most specific
+ * first. Both names of a pair must exist for the pair to be used. */
+typedef struct
+{
+    const gchar *on_name;
+    const gchar *off_name;
+} SystemIconPair;
+
+static const SystemIconPair system_icon_pairs[] = {
+    { "caffeine-cup-full",            "caffeine-cup-empty" },
+    { "caffeine-cup-full-symbolic",   "caffeine-cup-empty-symbolic" },
+    { "my-caffeine-on-symbolic",      "my-caffeine-off-symbolic" },
+    { NULL, NULL }
+};
+
+/* Loads one named icon from the theme at exactly size x size, or NULL. */
+static GdkPixbuf *
+load_system_icon (GtkIconTheme *icon_theme, const gchar *name, gint size,
+                  GtkStyleContext *context)
+{
+    GtkIconInfo *info;
+    GdkPixbuf   *pixbuf;
+    GError      *error = NULL;
+
+    info = gtk_icon_theme_lookup_icon (icon_theme, name, size, GTK_ICON_LOOKUP_FORCE_SIZE);
+    if (info == NULL)
+        return NULL;
+
+    if (context != NULL)
+        pixbuf = gtk_icon_info_load_symbolic_for_context (info, context, NULL, &error);
+    else
+        pixbuf = gtk_icon_info_load_icon (info, &error);
+
+    if (pixbuf == NULL)
+    {
+        g_debug ("Caffeine: could not load system icon '%s': %s", name,
+                  error ? error->message : "unknown error");
+        g_clear_error (&error);
+    }
+
+    g_object_unref (info);
+    return pixbuf;
+}
+
+CaffeineIconSet *
+caffeine_icons_load_from_system_theme (gint target_size, GtkStyleContext *context)
+{
+    GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
+    gint          i;
+
+    if (icon_theme == NULL || target_size <= 0)
+        return NULL;
+
+    for (i = 0; system_icon_pairs[i].on_name != NULL; i++)
+    {
+        const SystemIconPair *pair = &system_icon_pairs[i];
+        GdkPixbuf            *on_icon;
+        GdkPixbuf            *off_icon;
+
+        if (!gtk_icon_theme_has_icon (icon_theme, pair->on_name) ||
+            !gtk_icon_theme_has_icon (icon_theme, pair->off_name))
+            continue;
+
+        on_icon = load_system_icon (icon_theme, pair->on_name, target_size, context);
+        off_icon = load_system_icon (icon_theme, pair->off_name, target_size, context);
+
+        if (on_icon != NULL && off_icon != NULL)
+        {
+            CaffeineIconSet *icons = g_new0 (CaffeineIconSet, 1);
+
+            icons->off_frame = off_icon;
+            icons->on_frames = g_new0 (GdkPixbuf *, 1);
+            icons->on_frames[0] = on_icon;
+            icons->on_frame_count = 1;
+            return icons;
+        }
+
+        /* half-loaded pair is useless - drop it and try the next one */
+        if (on_icon != NULL)
+            g_object_unref (on_icon);
+        if (off_icon != NULL)
+            g_object_unref (off_icon);
+    }
+
+    return NULL;
+}
+
 CaffeineIconSet *
 caffeine_icons_load (gint target_size, CaffeineIconTheme theme)
 {

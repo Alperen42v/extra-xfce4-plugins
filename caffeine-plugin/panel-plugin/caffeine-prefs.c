@@ -10,6 +10,7 @@
 
 #define XFCONF_PROP_LOCK_CYCLE_MODE      "/lock-cycle-mode"     /* int, CaffeineLockCycleMode */
 #define XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN "/lock-cycle-custom-minutes" /* uint, >= 1 */
+#define XFCONF_PROP_ICON_SOURCE          "/icon-source"         /* int, CaffeineIconSource */
 #define XFCONF_PROP_ICON_THEME           "/icon-theme"          /* int, CaffeineIconTheme */
 #define XFCONF_PROP_SCREEN_OFF_ENABLED   "/screen-off-enabled"  /* bool */
 #define XFCONF_PROP_SCREEN_OFF_MODE      "/screen-off-mode"     /* int, CaffeineScreenOffMode */
@@ -77,6 +78,7 @@ caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
     /* sane defaults if xfconf isn't available or nothing was saved yet */
     settings->mode = CAFFEINE_LOCK_CYCLE_NEVER;
     settings->custom_minutes = 60;
+    settings->icon_source = CAFFEINE_ICON_SOURCE_SYSTEM;
     settings->icon_theme = CAFFEINE_ICON_THEME_AUTO;
     settings->screen_off_enabled = FALSE;
     settings->screen_off_mode = CAFFEINE_SCREEN_OFF_15MIN;
@@ -99,6 +101,11 @@ caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
     settings->custom_minutes = xfconf_channel_get_uint (channel, XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN, 60);
     if (settings->custom_minutes == 0)
         settings->custom_minutes = 60;
+
+    settings->icon_source = (CaffeineIconSource) xfconf_channel_get_int (
+        channel, XFCONF_PROP_ICON_SOURCE, (gint) CAFFEINE_ICON_SOURCE_SYSTEM);
+    if (settings->icon_source != CAFFEINE_ICON_SOURCE_PLUGIN)
+        settings->icon_source = CAFFEINE_ICON_SOURCE_SYSTEM; /* ignore unknown values */
 
     settings->icon_theme = (CaffeineIconTheme) xfconf_channel_get_int (
         channel, XFCONF_PROP_ICON_THEME, (gint) CAFFEINE_ICON_THEME_AUTO);
@@ -131,6 +138,7 @@ caffeine_settings_save (const CaffeineSettings *settings, const gchar *channel_n
 
     xfconf_channel_set_int (channel, XFCONF_PROP_LOCK_CYCLE_MODE, (gint) settings->mode);
     xfconf_channel_set_uint (channel, XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN, settings->custom_minutes);
+    xfconf_channel_set_int (channel, XFCONF_PROP_ICON_SOURCE, (gint) settings->icon_source);
     xfconf_channel_set_int (channel, XFCONF_PROP_ICON_THEME, (gint) settings->icon_theme);
     xfconf_channel_set_bool (channel, XFCONF_PROP_SCREEN_OFF_ENABLED, settings->screen_off_enabled);
     xfconf_channel_set_int (channel, XFCONF_PROP_SCREEN_OFF_MODE, (gint) settings->screen_off_mode);
@@ -150,6 +158,10 @@ typedef struct
     GtkWidget *radio_custom;
     GtkWidget *spin_custom;
 
+    GtkWidget *radio_source_system;
+    GtkWidget *radio_source_plugin;
+    GtkWidget *theme_box;             /* light/dark radios, only relevant for Caffeine's own icons */
+
     GtkWidget *radio_theme_auto;
     GtkWidget *radio_theme_light;
     GtkWidget *radio_theme_dark;
@@ -164,6 +176,14 @@ typedef struct
     GtkWidget *spin_screen_off_custom;
 } PrefsWidgets;
 
+/* Shown on hover over the icon source radios */
+#define ICON_SOURCE_SYSTEM_TOOLTIP_TEXT \
+    "Uses the Caffeine icons of your current icon theme. If the theme " \
+    "doesn't provide them, Caffeine's own icons are used instead."
+#define ICON_SOURCE_PLUGIN_TOOLTIP_TEXT \
+    "Always uses the icons bundled with Caffeine (or your own PNGs in " \
+    "~/.config/xfce4-caffeine-plugin/icons)."
+
 /* Shown on hover over the icon theme radios */
 #define ICON_THEME_TOOLTIP_TEXT \
     "It's recommended to pick the theme that matches your system."
@@ -173,6 +193,13 @@ on_custom_radio_toggled (GtkToggleButton *radio, gpointer user_data)
 {
     PrefsWidgets *w = (PrefsWidgets *) user_data;
     gtk_widget_set_sensitive (w->spin_custom, gtk_toggle_button_get_active (radio));
+}
+
+static void
+on_source_plugin_toggled (GtkToggleButton *radio, gpointer user_data)
+{
+    PrefsWidgets *w = (PrefsWidgets *) user_data;
+    gtk_widget_set_sensitive (w->theme_box, gtk_toggle_button_get_active (radio));
 }
 
 static void
@@ -191,6 +218,30 @@ on_screen_off_enabled_toggled (GtkToggleButton *check, gpointer user_data)
     gtk_widget_set_sensitive (w->screen_off_box, enabled);
 }
 
+/* Tallest the scrollable content area may grow before it starts to
+ * scroll: 70% of the primary monitor's work area, so the whole dialog
+ * (title bar and buttons included) always fits on screen. */
+static gint
+get_max_content_height (void)
+{
+    GdkDisplay  *display = gdk_display_get_default ();
+    GdkMonitor  *monitor = NULL;
+    GdkRectangle workarea;
+
+    if (display != NULL)
+    {
+        monitor = gdk_display_get_primary_monitor (display);
+        if (monitor == NULL && gdk_display_get_n_monitors (display) > 0)
+            monitor = gdk_display_get_monitor (display, 0);
+    }
+
+    if (monitor == NULL)
+        return 500; /* sane fallback if no monitor info is available */
+
+    gdk_monitor_get_workarea (monitor, &workarea);
+    return MAX (300, (workarea.height * 7) / 10);
+}
+
 gboolean
 caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
                             const gchar *channel_name)
@@ -198,6 +249,7 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     GtkWidget    *dialog;
     GtkWidget    *content_area;
     GtkWidget    *vbox;
+    GtkWidget    *scrolled;
     GtkWidget    *label;
     GtkWidget    *custom_hbox;
     PrefsWidgets  w = { 0 };
@@ -210,14 +262,26 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
                                            "_Cancel", GTK_RESPONSE_CANCEL,
                                            "_OK", GTK_RESPONSE_OK,
                                            NULL);
-    gtk_window_set_resizable (GTK_WINDOW (dialog), FALSE);
+    gtk_window_set_resizable (GTK_WINDOW (dialog), TRUE);
     gtk_container_set_border_width (GTK_CONTAINER (dialog), 6);
 
     content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
 
     vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
     gtk_container_set_border_width (GTK_CONTAINER (vbox), 8);
-    gtk_container_add (GTK_CONTAINER (content_area), vbox);
+
+    /* all options live in a scrolled window: the dialog grows to fit its
+     * content, but stops at get_max_content_height() and scrolls instead */
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                     GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolled), GTK_SHADOW_NONE);
+    gtk_scrolled_window_set_propagate_natural_width (GTK_SCROLLED_WINDOW (scrolled), TRUE);
+    gtk_scrolled_window_set_propagate_natural_height (GTK_SCROLLED_WINDOW (scrolled), TRUE);
+    gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scrolled),
+                                                 get_max_content_height ());
+    gtk_container_add (GTK_CONTAINER (scrolled), vbox);
+    gtk_box_pack_start (GTK_BOX (content_area), scrolled, TRUE, TRUE, 0);
 
     label = gtk_label_new ("While Caffeine is on, automatically lock the\nscreen and blank the monitor every:");
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
@@ -255,23 +319,43 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     /* separator + icon theme section */
     gtk_box_pack_start (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
 
-    label = gtk_label_new ("Custom icon theme:");
+    label = gtk_label_new ("Panel icons:");
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
     gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, FALSE, 0);
 
+    w.radio_source_system = gtk_radio_button_new_with_label (NULL, "Follow system icon theme (default)");
+    gtk_widget_set_tooltip_text (w.radio_source_system, ICON_SOURCE_SYSTEM_TOOLTIP_TEXT);
+    gtk_box_pack_start (GTK_BOX (vbox), w.radio_source_system, FALSE, FALSE, 0);
+
+    w.radio_source_plugin = gtk_radio_button_new_with_label_from_widget (
+        GTK_RADIO_BUTTON (w.radio_source_system), "Caffeine's own icons");
+    gtk_widget_set_tooltip_text (w.radio_source_plugin, ICON_SOURCE_PLUGIN_TOOLTIP_TEXT);
+    gtk_box_pack_start (GTK_BOX (vbox), w.radio_source_plugin, FALSE, FALSE, 0);
+
+    /* light/dark variant choice - only applies to Caffeine's own icons */
+    w.theme_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_margin_start (w.theme_box, 24);
+    gtk_box_pack_start (GTK_BOX (vbox), w.theme_box, FALSE, FALSE, 0);
+
+    label = gtk_label_new ("Icon variant:");
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_box_pack_start (GTK_BOX (w.theme_box), label, FALSE, FALSE, 0);
+
     w.radio_theme_auto = gtk_radio_button_new_with_label (NULL, "Auto (match system theme)");
     gtk_widget_set_tooltip_text (w.radio_theme_auto, ICON_THEME_TOOLTIP_TEXT);
-    gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_auto, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (w.theme_box), w.radio_theme_auto, FALSE, FALSE, 0);
 
     w.radio_theme_light = gtk_radio_button_new_with_label_from_widget (
         GTK_RADIO_BUTTON (w.radio_theme_auto), "Light system theme");
     gtk_widget_set_tooltip_text (w.radio_theme_light, ICON_THEME_TOOLTIP_TEXT);
-    gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_light, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (w.theme_box), w.radio_theme_light, FALSE, FALSE, 0);
 
     w.radio_theme_dark = gtk_radio_button_new_with_label_from_widget (
         GTK_RADIO_BUTTON (w.radio_theme_auto), "Dark system theme");
     gtk_widget_set_tooltip_text (w.radio_theme_dark, ICON_THEME_TOOLTIP_TEXT);
-    gtk_box_pack_start (GTK_BOX (vbox), w.radio_theme_dark, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (w.theme_box), w.radio_theme_dark, FALSE, FALSE, 0);
+
+    g_signal_connect (w.radio_source_plugin, "toggled", G_CALLBACK (on_source_plugin_toggled), &w);
 
     /* separator + screen-off-only section */
     gtk_box_pack_start (GTK_BOX (vbox), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
@@ -342,6 +426,13 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_widget_set_sensitive (w.spin_custom,
         gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_custom)));
 
+    gtk_toggle_button_set_active (
+        GTK_TOGGLE_BUTTON (settings->icon_source == CAFFEINE_ICON_SOURCE_PLUGIN
+                            ? w.radio_source_plugin : w.radio_source_system),
+        TRUE);
+    gtk_widget_set_sensitive (w.theme_box,
+        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_source_plugin)));
+
     switch (settings->icon_theme)
     {
         case CAFFEINE_ICON_THEME_LIGHT:
@@ -404,6 +495,10 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
 
         settings->custom_minutes =
             (guint) gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (w.spin_custom));
+
+        settings->icon_source =
+            gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_source_plugin))
+                ? CAFFEINE_ICON_SOURCE_PLUGIN : CAFFEINE_ICON_SOURCE_SYSTEM;
 
         if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_theme_light)))
             settings->icon_theme = CAFFEINE_ICON_THEME_LIGHT;
