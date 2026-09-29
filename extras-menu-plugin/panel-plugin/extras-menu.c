@@ -776,6 +776,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->popover = NULL;
     plugin->battery_label = NULL;
     plugin->battery_icon = NULL;
+    plugin->battery = NULL;
     plugin->screenshot_button = NULL;
     plugin->settings_button = NULL;
     plugin->lock_button = NULL;
@@ -1077,6 +1078,47 @@ on_bluetooth_toggle_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
                                        gtk_toggle_button_get_active(button));
 }
 
+/* Called by the battery backend once it has a reading and on every
+ * change after that. The badge is shown only while a battery is
+ * actually present, so desktops without one never see it. The icon
+ * switches to its "-charging" variant while plugged in and charging,
+ * and the tooltip carries the state plus time estimate. */
+static void
+on_battery_changed(gboolean present, guint percent, ExtrasMenuBatteryState state,
+                   gint64 seconds, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = user_data;
+
+    if (plugin->battery_label == NULL || plugin->battery_icon == NULL)
+        return;
+
+    /* The badge is the pill container holding the icon + label. */
+    GtkWidget *badge = gtk_widget_get_parent(plugin->battery_label);
+    if (badge == NULL)
+        return;
+
+    if (!present)
+    {
+        gtk_widget_hide(badge);
+        return;
+    }
+
+    gchar *text = g_strdup_printf("%u%%", percent);
+    gtk_label_set_text(GTK_LABEL(plugin->battery_label), text);
+    g_free(text);
+
+    gchar *icon_name = extras_menu_battery_icon_name(percent, state);
+    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->battery_icon), icon_name,
+                                  GTK_ICON_SIZE_BUTTON);
+    g_free(icon_name);
+
+    gchar *tooltip = extras_menu_battery_describe(percent, state, seconds);
+    gtk_widget_set_tooltip_text(badge, tooltip);
+    g_free(tooltip);
+
+    gtk_widget_show(badge);
+}
+
 /* Fired when the user picks "Properties..." from the plugin's
  * right-click panel menu (enabled via
  * xfce_panel_plugin_menu_show_configure() in construct() below). */
@@ -1091,6 +1133,12 @@ static void
 on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
     (void) panel_plugin;
+
+    if (plugin->battery != NULL)
+    {
+        extras_menu_battery_free(plugin->battery);
+        plugin->battery = NULL;
+    }
 
     if (plugin->audio != NULL)
     {
@@ -1200,6 +1248,17 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
      * on_network_row_activated()/on_connect_result() to update a
      * specific row's status label without a linear search. */
     plugin->network_row_by_ssid = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+    /* --- battery badge: hidden until the UPower backend confirms a
+     * battery exists. no_show_all keeps any later show_all from
+     * revealing it behind the backend's back. --- */
+    if (plugin->battery_label != NULL)
+    {
+        GtkWidget *badge = gtk_widget_get_parent(plugin->battery_label);
+        gtk_widget_set_no_show_all(badge, TRUE);
+        gtk_widget_hide(badge);
+    }
+    plugin->battery = extras_menu_battery_new(on_battery_changed, plugin);
 
     extras_menu_quick_actions_connect(plugin->screenshot_button,
                                        plugin->settings_button,

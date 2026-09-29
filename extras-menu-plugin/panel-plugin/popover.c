@@ -268,14 +268,13 @@ extras_menu_make_pill_expander(const gchar *icon_name, const gchar *label_text)
 
 /* Top status bar: a battery percentage badge on the left, a row of
  * small icon-only quick-action buttons on the right (screenshot,
- * settings, lock, power) -- mirrors the mockup's topmost row. Purely
- * visual for now: the battery percentage is a fixed placeholder and
- * the buttons don't do anything yet, both wired up as a follow-up once
- * this shape is approved. out_battery_label and out_battery_icon (both
- * optional) hand back the badge's pieces so a later pass can drive
- * them from a real UPower backend; the four button out-params
- * similarly hand back the action buttons themselves for wiring up
- * click handlers later. */
+ * settings, lock, power) -- mirrors the mockup's topmost row. The
+ * badge's "100%" text and icon here are only initial placeholders:
+ * extras-menu.c hides the badge until the UPower backend (battery.c)
+ * reports a real battery, then keeps the text/icon up to date.
+ * out_battery_label and out_battery_icon (both optional) hand back
+ * the badge's pieces for that; the four button out-params hand back
+ * the action buttons, wired up by quick-actions.c. */
 static GtkWidget *
 extras_menu_make_top_bar(GtkWidget **out_battery_label,
                           GtkWidget **out_battery_icon,

@@ -5,6 +5,7 @@
 #include <libxfce4panel/libxfce4panel.h>
 
 #include "audio.h"
+#include "battery.h"
 #include "bluetooth.h"
 #include "brightness.h"
 #include "network.h"
@@ -47,6 +48,11 @@ struct _ExtrasMenuPlugin
     GtkWidget *settings_button;
     GtkWidget *lock_button;
     GtkWidget *power_button;
+
+    /* UPower battery backend driving the badge above. The badge is
+     * hidden until the backend reports a battery is present, so
+     * machines without one (desktops) never show it. */
+    ExtrasMenuBattery *battery;
 
     /* volume slider inside the popover, its icon (swapped to a muted
      * variant at 0%/when muted), and the backend driving both */
