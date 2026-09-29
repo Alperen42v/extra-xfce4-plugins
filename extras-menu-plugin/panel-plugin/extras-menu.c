@@ -1,6 +1,7 @@
 #include "extras-menu.h"
 #include "popover.h"
 #include "preferences.h"
+#include "quick-actions.h"
 #include "network.h"
 
 #include <gio/gio.h>
@@ -898,21 +899,34 @@ on_toggle_button_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
     }
 }
 
+/* Hides the dropdown and resets the toggle button + its arrow icon to
+ * match. Shared by the focus-out handler below and by the quick-action
+ * buttons (which close the dropdown before launching their program).
+ * Takes a gpointer so it can double as an
+ * ExtrasMenuQuickActionsCloseFunc. */
+static void
+close_dropdown(gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = user_data;
+
+    gtk_widget_hide(plugin->popover);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(plugin->toggle_button), FALSE);
+    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->button_icon),
+                                  "pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
+}
+
 /* Since we're using a plain GtkWindow instead of a GtkPopover, we lose
  * the automatic "close when focus leaves" behaviour popovers get for
  * free. This reimplements it: whenever the dropdown window loses
  * keyboard focus (the user clicked elsewhere, or switched windows),
- * hide it and reset the toggle button to match. */
+ * close it. */
 static gboolean
 on_dropdown_focus_out(GtkWidget *widget, GdkEventFocus *event, ExtrasMenuPlugin *plugin)
 {
     (void) widget;
     (void) event;
 
-    gtk_widget_hide(plugin->popover);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(plugin->toggle_button), FALSE);
-    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->button_icon),
-                                  "pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
+    close_dropdown(plugin);
 
     return FALSE;
 }
@@ -1063,32 +1077,6 @@ on_bluetooth_toggle_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
                                        gtk_toggle_button_get_active(button));
 }
 
-/* Fired when the power button in the top bar is clicked. Launches
- * xfce4-session-logout, XFCE's own logout/restart/shutdown dialog --
- * same tool the session's own logout menu entry uses, so this gets
- * confirmation prompts, other-user-session warnings etc. for free
- * rather than us having to reimplement any of that. Fire-and-forget:
- * GSubprocess without any pipes, so we don't need to track its exit
- * status (the dialog runs as its own process, independent of the
- * panel). */
-static void
-on_power_button_clicked(GtkButton *button, gpointer user_data)
-{
-    (void) button;
-    (void) user_data;
-
-    GError *error = NULL;
-    GSubprocess *proc = g_subprocess_new(G_SUBPROCESS_FLAGS_NONE, &error,
-                                          "xfce4-session-logout", NULL);
-    if (proc == NULL)
-    {
-        g_clear_error(&error);
-        return;
-    }
-
-    g_object_unref(proc);
-}
-
 /* Fired when the user picks "Properties..." from the plugin's
  * right-click panel menu (enabled via
  * xfce_panel_plugin_menu_show_configure() in construct() below). */
@@ -1213,11 +1201,11 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
      * specific row's status label without a linear search. */
     plugin->network_row_by_ssid = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
-    if (plugin->power_button != NULL)
-    {
-        g_signal_connect(plugin->power_button, "clicked",
-                          G_CALLBACK(on_power_button_clicked), plugin);
-    }
+    extras_menu_quick_actions_connect(plugin->screenshot_button,
+                                       plugin->settings_button,
+                                       plugin->lock_button,
+                                       plugin->power_button,
+                                       close_dropdown, plugin);
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives
