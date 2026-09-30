@@ -21,6 +21,12 @@ G_BEGIN_DECLS
 
 typedef struct _ExtrasMenuBrightness ExtrasMenuBrightness;
 
+/* Lowest brightness we ever apply. At 0% many panels turn the
+ * backlight completely off, which leaves a black screen with no easy
+ * way back; the slider's lower bound and extras_menu_brightness_set()
+ * both enforce this. */
+#define EXTRAS_MENU_BRIGHTNESS_MIN_PERCENT 5
+
 /* Fired once after the initial brightness has been read (shortly
  * after extras_menu_brightness_new() returns), and again after every
  * extras_menu_brightness_set() call completes. percent is 0-100.
@@ -32,9 +38,13 @@ typedef void (*ExtrasMenuBrightnessChangedFunc)(guint percent, gpointer user_dat
 ExtrasMenuBrightness *extras_menu_brightness_new(ExtrasMenuBrightnessChangedFunc callback,
                                                   gpointer user_data);
 
-/* Requests brightness be set to percent (0-100, clamped). Fire-and-
- * forget: the resulting value comes back through the callback once
- * brightnessctl finishes and we re-read the actual value. */
+/* Requests brightness be set to percent (clamped to
+ * EXTRAS_MENU_BRIGHTNESS_MIN_PERCENT..100). Fire-and-forget, and safe
+ * to call at slider-drag rate: calls are coalesced (at most one
+ * brightnessctl process at a time, ~25 launches/s max, always ending
+ * on the latest requested value). Once the last request has been
+ * applied the callback fires with that value; if applying failed, the
+ * real value is re-read and reported instead. */
 void extras_menu_brightness_set(ExtrasMenuBrightness *brightness, guint percent);
 
 void extras_menu_brightness_free(ExtrasMenuBrightness *brightness);

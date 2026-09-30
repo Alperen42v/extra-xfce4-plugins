@@ -14,7 +14,27 @@ struct _ExtrasMenuBrightness
      * brightness row entirely when no backlight is controllable. Not
      * currently read anywhere, but kept for that future use. */
     gboolean available;
+
+    /* Coalescing state for set(): while the user drags the slider we
+     * get dozens of requests per second, and spawning a process for
+     * each one made the UI stutter (and the slider fight the drag).
+     * Instead only the latest requested value is kept (pending_*),
+     * sent at most once per SET_INTERVAL_MS, with one process in
+     * flight at a time. */
+    gboolean has_pending;
+    guint pending_percent;
+    guint last_sent_percent;
+    gboolean has_last_sent;
+    gboolean set_in_flight;
+    guint flush_source;
+
+    /* Cancelled on free() so late async completions never touch a
+     * freed struct. */
+    GCancellable *cancellable;
 };
+
+/* Minimum gap between two brightnessctl launches during a drag. */
+#define SET_INTERVAL_MS 40
 
 /* --- reading the current brightness ------------------------------------ */
 
@@ -65,6 +85,7 @@ on_get_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 
     if (!g_subprocess_communicate_finish(proc, result, &stdout_bytes, NULL, &error))
     {
+        /* Cancelled means free() already ran: brightness is gone. */
         g_clear_error(&error);
         return;
     }
@@ -110,50 +131,72 @@ request_current_brightness(ExtrasMenuBrightness *brightness)
         return;
     }
 
-    g_subprocess_communicate_async(proc, NULL, NULL, on_get_finished, brightness);
+    g_subprocess_communicate_async(proc, NULL, brightness->cancellable, on_get_finished, brightness);
     g_object_unref(proc);
 }
 
 /* --- setting the brightness --------------------------------------------- */
 
+static void schedule_flush(ExtrasMenuBrightness *brightness);
+
 static void
 on_set_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    ExtrasMenuBrightness *brightness = user_data;
     GSubprocess *proc = G_SUBPROCESS(source);
 
     GError *error = NULL;
-    g_subprocess_wait_check_finish(proc, result, &error);
+    gboolean ok = g_subprocess_wait_check_finish(proc, result, &error);
+    gboolean cancelled = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
     g_clear_error(&error);
 
-    /* Whether it succeeded or not, re-read the actual value so the UI
-     * always reflects reality rather than what we merely asked for. */
-    request_current_brightness(brightness);
-}
-
-/* --- public API ----------------------------------------------------------- */
-
-ExtrasMenuBrightness *
-extras_menu_brightness_new(ExtrasMenuBrightnessChangedFunc callback, gpointer user_data)
-{
-    ExtrasMenuBrightness *brightness = g_new0(ExtrasMenuBrightness, 1);
-    brightness->callback = callback;
-    brightness->user_data = user_data;
-    brightness->available = FALSE;
-
-    request_current_brightness(brightness);
-
-    return brightness;
-}
-
-void
-extras_menu_brightness_set(ExtrasMenuBrightness *brightness, guint percent)
-{
-    if (brightness == NULL)
+    /* Cancelled means free() already ran: user_data is gone. */
+    if (cancelled)
         return;
 
-    if (percent > 100)
-        percent = 100;
+    ExtrasMenuBrightness *brightness = user_data;
+    brightness->set_in_flight = FALSE;
+
+    if (brightness->has_pending)
+    {
+        /* The user kept dragging: apply the newest value next and
+         * don't report anything yet -- reporting a stale value now
+         * would yank the slider back under their finger. */
+        schedule_flush(brightness);
+        return;
+    }
+
+    if (ok)
+    {
+        /* We know exactly what we set, so report it directly instead
+         * of spawning another process just to read it back. */
+        if (brightness->callback != NULL)
+            brightness->callback(brightness->last_sent_percent, brightness->user_data);
+    }
+    else
+    {
+        /* Failed (no permission, no device...): re-read the real value
+         * so the UI reflects reality rather than what we asked for. */
+        request_current_brightness(brightness);
+    }
+}
+
+/* Sends the newest pending value, if any. */
+static gboolean
+flush_pending(gpointer user_data)
+{
+    ExtrasMenuBrightness *brightness = user_data;
+    brightness->flush_source = 0;
+
+    if (!brightness->has_pending || brightness->set_in_flight)
+        return G_SOURCE_REMOVE;
+
+    guint percent = brightness->pending_percent;
+    brightness->has_pending = FALSE;
+
+    /* Skip no-op writes (the slider can emit several events for the
+     * same integer percentage). */
+    if (brightness->has_last_sent && brightness->last_sent_percent == percent)
+        return G_SOURCE_REMOVE;
 
     gchar *value_arg = g_strdup_printf("%u%%", percent);
 
@@ -168,15 +211,69 @@ extras_menu_brightness_set(ExtrasMenuBrightness *brightness, guint percent)
     if (proc == NULL)
     {
         g_clear_error(&error);
-        return;
+        return G_SOURCE_REMOVE;
     }
 
-    g_subprocess_wait_check_async(proc, NULL, on_set_finished, brightness);
+    brightness->last_sent_percent = percent;
+    brightness->has_last_sent = TRUE;
+    brightness->set_in_flight = TRUE;
+
+    g_subprocess_wait_check_async(proc, brightness->cancellable, on_set_finished, brightness);
     g_object_unref(proc);
+
+    return G_SOURCE_REMOVE;
+}
+
+static void
+schedule_flush(ExtrasMenuBrightness *brightness)
+{
+    if (brightness->flush_source == 0)
+        brightness->flush_source = g_timeout_add(SET_INTERVAL_MS, flush_pending, brightness);
+}
+
+/* --- public API ----------------------------------------------------------- */
+
+ExtrasMenuBrightness *
+extras_menu_brightness_new(ExtrasMenuBrightnessChangedFunc callback, gpointer user_data)
+{
+    ExtrasMenuBrightness *brightness = g_new0(ExtrasMenuBrightness, 1);
+    brightness->callback = callback;
+    brightness->user_data = user_data;
+    brightness->available = FALSE;
+    brightness->cancellable = g_cancellable_new();
+
+    request_current_brightness(brightness);
+
+    return brightness;
+}
+
+void
+extras_menu_brightness_set(ExtrasMenuBrightness *brightness, guint percent)
+{
+    if (brightness == NULL)
+        return;
+
+    percent = CLAMP(percent, EXTRAS_MENU_BRIGHTNESS_MIN_PERCENT, 100);
+
+    /* Only remember the newest value; flush_pending() sends it. */
+    brightness->pending_percent = percent;
+    brightness->has_pending = TRUE;
+
+    if (!brightness->set_in_flight)
+        schedule_flush(brightness);
 }
 
 void
 extras_menu_brightness_free(ExtrasMenuBrightness *brightness)
 {
+    if (brightness == NULL)
+        return;
+
+    if (brightness->flush_source != 0)
+        g_source_remove(brightness->flush_source);
+
+    g_cancellable_cancel(brightness->cancellable);
+    g_object_unref(brightness->cancellable);
+
     g_free(brightness);
 }

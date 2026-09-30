@@ -1314,6 +1314,10 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 
     if (plugin->brightness_scale != NULL)
     {
+        /* Never let the slider reach 0%: many panels switch the
+         * backlight fully off there, leaving a black screen. */
+        gtk_range_set_range(GTK_RANGE(plugin->brightness_scale),
+                             EXTRAS_MENU_BRIGHTNESS_MIN_PERCENT, 100);
         g_signal_connect(plugin->brightness_scale, "value-changed",
                           G_CALLBACK(on_brightness_scale_changed), plugin);
     }
