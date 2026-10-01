@@ -145,6 +145,13 @@ struct _ExtrasMenuPlugin
     /* same idea again, but for network_toggle (Wi-Fi radio on/off) /
      * NetworkManager's WirelessEnabled. */
     gboolean updating_wifi_enabled_from_backend;
+
+    /* How many of the dropdown's own dialogs (password prompt, error
+     * and info messages, network details) are currently open. While
+     * this is non-zero, the dropdown's focus-out handler leaves the
+     * dropdown open, since focus moving to one of those dialogs isn't
+     * the user clicking away. See track_dialog() in extras-menu.c. */
+    guint open_dialog_count;
 };
 
 struct _ExtrasMenuPluginClass

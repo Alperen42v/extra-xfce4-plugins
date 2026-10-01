@@ -6,6 +6,93 @@
 
 #include <gio/gio.h>
 
+/* --- dialogs ---------------------------------------------------------------
+ *
+ * Every dialog the dropdown opens (password prompt, errors, Ethernet
+ * info, network details) is non-blocking: it is shown, and its
+ * "response" handler destroys it. gtk_dialog_run() is deliberately not
+ * used anywhere -- it spins a nested main loop inside whatever D-Bus or
+ * GTK callback called it, so other callbacks (a rescan rebuilding the
+ * network list, a backend update, ...) would run while that callback is
+ * still half-finished on the stack.
+ *
+ * Opening a dialog moves keyboard focus away from the dropdown, which
+ * would normally trigger on_dropdown_focus_out() and close the dropdown
+ * -- leaving the dialog parented to a hidden window. track_dialog()
+ * counts open dialogs so the focus-out handler can ignore focus moving
+ * to one of them, and gives focus back to the dropdown once the last
+ * one is gone so click-away-to-close works again. */
+
+static void
+on_tracked_dialog_destroyed(GtkWidget *dialog, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
+    (void) dialog;
+
+    if (plugin->open_dialog_count > 0)
+        plugin->open_dialog_count--;
+
+    if (plugin->open_dialog_count == 0 && plugin->popover != NULL &&
+        gtk_widget_get_visible(plugin->popover))
+    {
+        gtk_window_present(GTK_WINDOW(plugin->popover));
+    }
+}
+
+static void
+track_dialog(ExtrasMenuPlugin *plugin, GtkWidget *dialog)
+{
+    plugin->open_dialog_count++;
+    g_signal_connect(dialog, "destroy", G_CALLBACK(on_tracked_dialog_destroyed), plugin);
+}
+
+/* Response handler for dialogs that only need to go away when answered. */
+static void
+on_dialog_response_destroy(GtkDialog *dialog, gint response_id, gpointer user_data)
+{
+    (void) response_id;
+    (void) user_data;
+    gtk_widget_destroy(GTK_WIDGET(dialog));
+}
+
+/* Shows a simple non-blocking message dialog with an OK button.
+ * secondary may be NULL. */
+static void
+show_message_dialog(ExtrasMenuPlugin *plugin, GtkMessageType type,
+                    const gchar *primary, const gchar *secondary)
+{
+    GtkWidget *dialog = gtk_message_dialog_new(
+        GTK_WINDOW(plugin->popover), GTK_DIALOG_DESTROY_WITH_PARENT,
+        type, GTK_BUTTONS_OK, "%s", primary);
+
+    if (secondary != NULL)
+    {
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
+                                                  "%s", secondary);
+    }
+
+    track_dialog(plugin, dialog);
+    g_signal_connect(dialog, "response", G_CALLBACK(on_dialog_response_destroy), NULL);
+    gtk_widget_show(dialog);
+}
+
+/* Opens/closes the Wi-Fi list revealer and keeps the chevron's
+ * direction in step with it (pan-down while open, pan-end while
+ * closed). Both widgets may not exist yet early in startup. */
+static void
+set_network_list_open(ExtrasMenuPlugin *plugin, gboolean open)
+{
+    if (plugin->network_revealer != NULL)
+        gtk_revealer_set_reveal_child(GTK_REVEALER(plugin->network_revealer), open);
+
+    if (plugin->network_expand_chevron != NULL)
+    {
+        gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_expand_chevron),
+                                      open ? "pan-down-symbolic" : "pan-end-symbolic",
+                                      GTK_ICON_SIZE_BUTTON);
+    }
+}
+
 /* Applies a network status (kind + IP) to the pill's label/icon.
  * Shared by on_network_status_changed() (the normal path) and the end
  * of construct() (to catch the case where the backend's first
@@ -23,6 +110,12 @@ apply_network_status(ExtrasMenuPlugin *plugin, ExtrasMenuNetworkKind kind)
             gtk_label_set_text(GTK_LABEL(plugin->network_pill_label), "Ethernet");
             gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_pill_icon),
                                           "network-wired-symbolic", GTK_ICON_SIZE_BUTTON);
+
+            /* The Wi-Fi list has no meaning in Ethernet mode (the
+             * chevron shows an info dialog instead), so if it was open
+             * when the cable came up, close it and flip the chevron
+             * back rather than leaving it stuck open. */
+            set_network_list_open(plugin, FALSE);
             break;
 
         case EXTRAS_MENU_NETWORK_KIND_WIFI:
@@ -112,50 +205,50 @@ on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
 {
     (void) button;
 
+    gboolean currently_open =
+        plugin->network_revealer != NULL &&
+        gtk_revealer_get_reveal_child(GTK_REVEALER(plugin->network_revealer));
+
+    /* An open list can always be closed, whatever the connection kind
+     * is right now -- otherwise a list left open when the kind changed
+     * (Wi-Fi radio switched off, cable plugged in, ...) could never be
+     * dismissed, since the branches below would only show a dialog. */
+    if (currently_open)
+    {
+        set_network_list_open(plugin, FALSE);
+        return;
+    }
+
     if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_WIFI)
     {
         if (plugin->network_revealer == NULL)
             return;
 
-        gboolean currently_open = gtk_revealer_get_reveal_child(GTK_REVEALER(plugin->network_revealer));
-        gboolean will_open = !currently_open;
-        gtk_revealer_set_reveal_child(GTK_REVEALER(plugin->network_revealer), will_open);
-
-        if (plugin->network_expand_chevron != NULL)
-        {
-            gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_expand_chevron),
-                                          will_open ? "pan-down-symbolic" : "pan-end-symbolic",
-                                          GTK_ICON_SIZE_BUTTON);
-        }
+        set_network_list_open(plugin, TRUE);
 
         /* Ask for a fresh scan each time the list is opened, so it's
          * not showing stale results from whenever the dropdown last
          * happened to scan. */
-        if (will_open)
-            extras_menu_network_rescan(plugin->network);
+        extras_menu_network_rescan(plugin->network);
 
         return;
     }
 
     /* Ethernet or no connection: show a simple info dialog instead of
      * a list -- nothing to pick between on a wired connection. */
-    GtkWidget *dialog = gtk_message_dialog_new(
-        GTK_WINDOW(plugin->popover), GTK_DIALOG_DESTROY_WITH_PARENT,
-        GTK_MESSAGE_INFO, GTK_BUTTONS_OK,
-        plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET
-            ? "Connected via Ethernet"
-            : "Not connected");
-
     if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET)
     {
-        gtk_message_dialog_format_secondary_text(
-            GTK_MESSAGE_DIALOG(dialog), "IP address: %s",
+        gchar *details = g_strdup_printf(
+            "IP address: %s",
             plugin->network_last_ip_address != NULL ? plugin->network_last_ip_address
                                                       : "Not yet assigned");
+        show_message_dialog(plugin, GTK_MESSAGE_INFO, "Connected via Ethernet", details);
+        g_free(details);
     }
-
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+    else
+    {
+        show_message_dialog(plugin, GTK_MESSAGE_INFO, "Not connected", NULL);
+    }
 }
 
 static void prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWindow *parent_window);
@@ -208,20 +301,61 @@ on_connect_result(gboolean success, const gchar *error_message, gpointer user_da
     set_network_pill_connecting(plugin, FALSE);
     set_network_row_status(plugin, plugin->pending_connect_ssid, NULL);
 
-    GtkWidget *dialog = gtk_message_dialog_new(
-        GTK_WINDOW(plugin->popover), GTK_DIALOG_DESTROY_WITH_PARENT,
-        GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
-        "Couldn't connect to the network.");
-    gtk_message_dialog_format_secondary_text(
-        GTK_MESSAGE_DIALOG(dialog), "%s",
-        error_message != NULL ? error_message : "Unknown error");
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+    show_message_dialog(plugin, GTK_MESSAGE_ERROR,
+                        "Couldn't connect to the network.",
+                        error_message != NULL ? error_message : "Unknown error");
 }
 
-/* Prompts for a Wi-Fi password with a small modal dialog, then
- * attempts to connect. parent_window anchors both the password dialog
- * and any resulting error dialog. */
+/* What the password dialog's response handler needs once the user
+ * answers. Owned by the dialog (freed with it), so it lives exactly as
+ * long as the dialog does. */
+typedef struct
+{
+    ExtrasMenuPlugin *plugin;
+    gchar *ssid;
+    GtkWidget *entry;
+} PasswordPromptCtx;
+
+static void
+password_prompt_ctx_free(gpointer data)
+{
+    PasswordPromptCtx *ctx = data;
+    g_free(ctx->ssid);
+    g_free(ctx);
+}
+
+static void
+on_password_dialog_response(GtkDialog *dialog, gint response_id, gpointer user_data)
+{
+    PasswordPromptCtx *ctx = user_data;
+    ExtrasMenuPlugin *plugin = ctx->plugin;
+
+    if (response_id == GTK_RESPONSE_OK)
+    {
+        /* extras_menu_network_connect() copies the password, so it is
+         * fine for the entry (and this dialog) to go away right after. */
+        const gchar *password = gtk_entry_get_text(GTK_ENTRY(ctx->entry));
+        set_network_row_status(plugin, ctx->ssid, "Connecting\xE2\x80\xA6"); /* "Connecting…" */
+        extras_menu_network_connect(plugin->network, ctx->ssid, password, TRUE,
+                                     on_connect_result, plugin);
+    }
+    else
+    {
+        /* Cancelled (or closed with Escape / the window button) -- stop
+         * the spinner that on_network_row_activated() started,
+         * otherwise it would keep spinning forever with no attempt
+         * actually in flight. */
+        set_network_pill_connecting(plugin, FALSE);
+        set_network_row_status(plugin, ctx->ssid, NULL);
+    }
+
+    gtk_widget_destroy(GTK_WIDGET(dialog));
+}
+
+/* Prompts for a Wi-Fi password with a small modal dialog and returns
+ * immediately; the connect attempt (or the cancel handling) happens in
+ * on_password_dialog_response() once the user answers. parent_window
+ * anchors the password dialog. */
 static void
 prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWindow *parent_window)
 {
@@ -252,38 +386,19 @@ prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWind
     gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE); /* Enter submits */
     gtk_box_pack_start(GTK_BOX(box), entry, FALSE, FALSE, 0);
 
+    PasswordPromptCtx *ctx = g_new0(PasswordPromptCtx, 1);
+    ctx->plugin = plugin;
+    ctx->ssid = g_strdup(ssid);
+    ctx->entry = entry;
+    g_object_set_data_full(G_OBJECT(dialog), "extras-menu-password-ctx",
+                            ctx, password_prompt_ctx_free);
+
+    track_dialog(plugin, dialog);
+    g_signal_connect(dialog, "response", G_CALLBACK(on_password_dialog_response), ctx);
+
     gtk_widget_show_all(dialog);
-
-    gint response = gtk_dialog_run(GTK_DIALOG(dialog));
-    if (response == GTK_RESPONSE_OK)
-    {
-        const gchar *password = gtk_entry_get_text(GTK_ENTRY(entry));
-        set_network_row_status(plugin, ssid, "Connecting\xE2\x80\xA6"); /* "Connecting…" */
-        extras_menu_network_connect(plugin->network, ssid, password, TRUE,
-                                     on_connect_result, plugin);
-    }
-    else
-    {
-        /* Cancelled -- stop the spinner that on_network_row_activated()
-         * started, otherwise it would keep spinning forever with no
-         * attempt actually in flight. */
-        set_network_pill_connecting(plugin, FALSE);
-        set_network_row_status(plugin, ssid, NULL);
-    }
-
-    gtk_widget_destroy(dialog);
 }
 
-/* Fired when the user clicks a network row in the Wi-Fi list. Open
- * networks connect immediately. Secured networks also try to connect
- * immediately first -- extras_menu_network_connect() itself looks for
- * an already-saved profile (which includes the password) before
- * asking us for one, so a network we've connected to before (or are
- * currently on) reconnects without any prompt. Only if that attempt
- * fails (no saved profile existed, so NetworkManager had nothing to
- * authenticate with) do we fall back to prompting for a password --
- * see on_connect_result() below, which is where that fallback
- * actually happens. */
 /* Updates a network row's status label (found via
  * plugin->network_row_by_ssid) to either "Connecting...", "Connected",
  * or blank/hidden (idle -- neither connecting nor the active network).
@@ -331,6 +446,16 @@ set_network_pill_connecting(ExtrasMenuPlugin *plugin, gboolean connecting)
     }
 }
 
+/* Fired when the user clicks a network row in the Wi-Fi list. Open
+ * networks connect immediately. Secured networks also try to connect
+ * immediately first -- extras_menu_network_connect() itself looks for
+ * an already-saved profile (which includes the password) before
+ * asking us for one, so a network we've connected to before (or are
+ * currently on) reconnects without any prompt. Only if that attempt
+ * fails (no saved profile existed, so NetworkManager had nothing to
+ * authenticate with) do we fall back to prompting for a password --
+ * see on_connect_result() above, which is where that fallback
+ * actually happens. */
 static void
 on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user_data)
 {
@@ -400,6 +525,26 @@ row_ap_details_new(const ExtrasMenuAccessPoint *ap)
     details->frequency = ap->frequency;
     details->max_bitrate = ap->max_bitrate;
     return details;
+}
+
+/* Independent deep copy of a row's details. The right-click menu gives
+ * each of its items its own copy rather than pointing at the row's:
+ * on_network_list_changed() destroys and rebuilds every row on each
+ * scan update, which can happen while the menu is still open, and a
+ * borrowed pointer would then dangle. */
+static RowApDetails *
+row_ap_details_copy(const RowApDetails *src)
+{
+    RowApDetails *copy = g_new0(RowApDetails, 1);
+    copy->ssid = g_strdup(src->ssid);
+    copy->bssid = src->bssid != NULL ? g_strdup(src->bssid) : NULL;
+    copy->strength = src->strength;
+    copy->secured = src->secured;
+    copy->is_active = src->is_active;
+    copy->security = src->security;
+    copy->frequency = src->frequency;
+    copy->max_bitrate = src->max_bitrate;
+    return copy;
 }
 
 /* Colour used for a security scheme's badge in the details dialog,
@@ -549,9 +694,11 @@ show_network_details_dialog(ExtrasMenuPlugin *plugin, const RowApDetails *detail
         g_free(bssid_markup);
     }
 
+    /* Everything shown above was copied into labels already, so
+     * nothing here needs `details` to outlive this call. */
+    track_dialog(plugin, dialog);
+    g_signal_connect(dialog, "response", G_CALLBACK(on_dialog_response_destroy), NULL);
     gtk_widget_show_all(dialog);
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
 }
 
 /* Fired once extras_menu_network_forget() finishes. Only surfaces
@@ -565,15 +712,9 @@ on_forget_result(gboolean success, const gchar *error_message, gpointer user_dat
     if (success)
         return;
 
-    GtkWidget *dialog = gtk_message_dialog_new(
-        GTK_WINDOW(plugin->popover), GTK_DIALOG_DESTROY_WITH_PARENT,
-        GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
-        "Couldn't forget the network.");
-    gtk_message_dialog_format_secondary_text(
-        GTK_MESSAGE_DIALOG(dialog), "%s",
-        error_message != NULL ? error_message : "Unknown error");
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+    show_message_dialog(plugin, GTK_MESSAGE_ERROR,
+                        "Couldn't forget the network.",
+                        error_message != NULL ? error_message : "Unknown error");
 }
 
 static void
@@ -628,13 +769,15 @@ on_network_list_button_press(GtkWidget *list_box, GdkEventButton *event, gpointe
     GtkWidget *menu = gtk_menu_new();
 
     GtkWidget *forget_item = gtk_menu_item_new_with_label("Forget this network");
-    g_object_set_data(G_OBJECT(forget_item), "extras-menu-ap-details", details);
+    g_object_set_data_full(G_OBJECT(forget_item), "extras-menu-ap-details",
+                            row_ap_details_copy(details), row_ap_details_free);
     g_signal_connect(forget_item, "activate",
                       G_CALLBACK(on_forget_menu_item_activated), plugin);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), forget_item);
 
     GtkWidget *details_item = gtk_menu_item_new_with_label("Network details\xE2\x80\xA6"); /* "Network details…" */
-    g_object_set_data(G_OBJECT(details_item), "extras-menu-ap-details", details);
+    g_object_set_data_full(G_OBJECT(details_item), "extras-menu-ap-details",
+                            row_ap_details_copy(details), row_ap_details_free);
     g_signal_connect(details_item, "activate",
                       G_CALLBACK(on_details_menu_item_activated), plugin);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), details_item);
@@ -814,6 +957,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->pending_connect_secured = FALSE;
     plugin->pending_connect_password_was_tried = FALSE;
     plugin->updating_wifi_enabled_from_backend = FALSE;
+    plugin->open_dialog_count = 0;
 }
 
 /* Moves the dropdown window so it sits next to the panel button,
@@ -926,6 +1070,14 @@ on_dropdown_focus_out(GtkWidget *widget, GdkEventFocus *event, ExtrasMenuPlugin 
 {
     (void) widget;
     (void) event;
+
+    /* Focus moving to one of our own dialogs (password prompt, error,
+     * details, ...) is not "the user clicked away" -- closing here
+     * would hide the window those dialogs are parented to. Focus is
+     * handed back to the dropdown when the last dialog closes (see
+     * on_tracked_dialog_destroyed()). */
+    if (plugin->open_dialog_count > 0)
+        return FALSE;
 
     close_dropdown(plugin);
 
