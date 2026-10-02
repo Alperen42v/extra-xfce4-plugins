@@ -7,8 +7,10 @@ G_BEGIN_DECLS
 
 /*
  * Thin wrapper around NetworkManager's D-Bus API (org.freedesktop.NetworkManager,
- * system bus). Tracks both the first Wi-Fi device and the first
- * Ethernet device found, and exposes:
+ * system bus). Tracks the first Wi-Fi device found (for scanning and
+ * connecting), plus NetworkManager's "primary connection" (for the
+ * Wi-Fi/Ethernet pill; no separate Ethernet device is tracked), and
+ * exposes:
  *   - which kind of connection (if any) is currently active: Wi-Fi or
  *     Ethernet -- used to decide what the "Wi-Fi"/"Ethernet" pill in
  *     the dropdown should say and do
@@ -61,7 +63,11 @@ typedef struct
 {
     gchar *ssid;
     gint8 strength; /* 0-100 */
-    gboolean secured; /* TRUE if a password is required to connect */
+    /* TRUE if a password (or key) is required to connect. Derived from
+     * the security scheme: FALSE for Open and Enhanced Open (OWE, which
+     * is encrypted but passwordless), TRUE for WEP, WPA and later, and
+     * Enterprise. */
+    gboolean secured;
     gboolean is_active; /* TRUE if this is the network we're currently connected to */
 
     ExtrasMenuApSecurity security;
@@ -150,7 +156,23 @@ void extras_menu_network_rescan(ExtrasMenuNetwork *network);
  *     WPA handshake -- silently going nowhere instead of surfacing an
  *     error. If password is non-empty, a new profile is created with
  *     it and activated normally.
- * result_callback (optional) is invoked once the attempt finishes. */
+ *
+ * The kind of profile created follows the security scheme the network
+ * advertised in the most recent scan (WPA2-PSK, WPA3-SAE, WEP, or
+ * Enhanced Open); requires_password is only consulted for networks
+ * that weren't in that scan. Enterprise (802.1X) networks can't be set
+ * up from here, so a new profile for one fails with an explanatory
+ * error (an already-saved profile still connects normally).
+ *
+ * If an attempt that created a new profile fails (typically a wrong
+ * password), that profile is deleted again before result_callback
+ * reports the failure, so a retry starts clean instead of silently
+ * reusing the bad profile. Profiles that already existed are never
+ * deleted.
+ *
+ * result_callback (optional) is invoked once the attempt finishes. It
+ * is NOT invoked for attempts still in flight when
+ * extras_menu_network_free() is called. */
 void extras_menu_network_connect(ExtrasMenuNetwork *network,
                                   const gchar *ssid,
                                   const gchar *password,

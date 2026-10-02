@@ -15,7 +15,6 @@
 #define NM_SETTINGS_IFACE        "org.freedesktop.NetworkManager.Settings"
 #define NM_SETTINGS_CONNECTION_IFACE "org.freedesktop.NetworkManager.Settings.Connection"
 
-#define NM_DEVICE_TYPE_ETHERNET 1
 #define NM_DEVICE_TYPE_WIFI     2
 
 /* NM80211ApFlags -- the AP's own general capability bits. */
@@ -68,7 +67,49 @@ struct _ExtrasMenuNetwork
 
     ExtrasMenuNetworkWifiEnabledChangedFunc wifi_enabled_changed_callback;
     gpointer wifi_enabled_changed_user_data;
+
+    /* Passed to every asynchronous D-Bus call we make and cancelled in
+     * extras_menu_network_free(). Every async callback in this file
+     * checks for cancellation *before* touching `network` (see
+     * call_was_cancelled()): a cancelled call still invokes its
+     * callback, just with G_IO_ERROR_CANCELLED, and by then the
+     * network struct is already gone. */
+    GCancellable *cancellable;
+
+    /* Incremented every time a fresh AP list is requested. Each fetch
+     * remembers the number it started with, and a fetch whose number
+     * is no longer current when it finishes is dropped -- otherwise two
+     * overlapping fetches could finish out of order and the older,
+     * staler result would overwrite the newer one. */
+    guint ap_generation;
+
+    /* Pending "refresh the AP list shortly" timer (0 if none).
+     * NetworkManager emits bursts of PropertiesChanged/AccessPoint*
+     * signals during a scan; coalescing them into one refresh avoids
+     * rebuilding the whole list once per signal. */
+    guint ap_refresh_source_id;
+
+    /* Connection attempts currently being watched
+     * (ActiveConnectionWatchCtx*), so extras_menu_network_free() can
+     * tear down their signal subscriptions and timeouts. */
+    GSList *watches;
+
+    /* SSID (owned gchar*) -> ExtrasMenuApSecurity (as a pointer) for the
+     * networks in the most recent AP list. Lets connect() pick the right
+     * kind of profile (WPA2-PSK, WPA3-SAE, WEP, OWE, ...) without
+     * widening the public API. */
+    GHashTable *security_by_ssid;
 };
+
+/* A cancelled GDBus call still runs its callback, with this error.
+ * When it happens, extras_menu_network_free() has already run, so the
+ * callback must only release its own context and return -- it must not
+ * touch the network struct or call any user callback. */
+static gboolean
+call_was_cancelled(const GError *error)
+{
+    return error != NULL && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+}
 
 /* --- helpers -------------------------------------------------------- */
 
@@ -150,6 +191,44 @@ extras_menu_ap_security_to_string(ExtrasMenuApSecurity security)
     }
 }
 
+/* Whether connecting to a network with this security scheme needs a
+ * password from the user. `fallback` is the answer to give when the
+ * scheme couldn't be determined.
+ *
+ * This deliberately goes by the derived scheme rather than "are any
+ * WPA/RSN flags set": Enhanced Open (OWE) sets RSN flags but needs no
+ * password, while WEP sets neither WPA nor RSN flags yet does need one. */
+static gboolean
+security_needs_password(ExtrasMenuApSecurity security, gboolean fallback)
+{
+    switch (security)
+    {
+        case EXTRAS_MENU_AP_SECURITY_OPEN:
+        case EXTRAS_MENU_AP_SECURITY_OWE:
+            return FALSE;
+        case EXTRAS_MENU_AP_SECURITY_UNKNOWN:
+            return fallback;
+        default:
+            return TRUE;
+    }
+}
+
+/* Security scheme of the network with this SSID in the most recent AP
+ * list, or UNKNOWN if it isn't in it (hidden, out of range, ...). */
+static ExtrasMenuApSecurity
+lookup_known_security(ExtrasMenuNetwork *network, const gchar *ssid)
+{
+    gpointer value = NULL;
+
+    if (network->security_by_ssid != NULL &&
+        g_hash_table_lookup_extended(network->security_by_ssid, ssid, NULL, &value))
+    {
+        return (ExtrasMenuApSecurity) GPOINTER_TO_UINT(value);
+    }
+
+    return EXTRAS_MENU_AP_SECURITY_UNKNOWN;
+}
+
 /* Sort predicate for the access point list: the currently-active
  * network always sorts first (so the user sees what they're connected
  * to without having to scroll/scan), everything else by signal
@@ -199,7 +278,24 @@ typedef struct
     gchar *active_ap_path; /* NULL if nothing is currently active */
     GPtrArray *results;    /* of owned ExtrasMenuAccessPoint* */
     guint pending_count;   /* GetAll calls still outstanding */
+    guint generation;      /* value of network->ap_generation when this fetch started */
+    gboolean aborted;      /* a call was cancelled: network is gone, don't touch it */
 } ApFetchContext;
+
+static void
+free_ap_fetch_context(ApFetchContext *ctx)
+{
+    for (guint j = 0; j < ctx->results->len; j++)
+    {
+        ExtrasMenuAccessPoint *ap = g_ptr_array_index(ctx->results, j);
+        g_free(ap->ssid);
+        g_free(ap->bssid);
+        g_free(ap);
+    }
+    g_ptr_array_free(ctx->results, TRUE);
+    g_free(ctx->active_ap_path);
+    g_free(ctx);
+}
 
 static void
 finish_ap_fetch_if_done(ApFetchContext *ctx)
@@ -207,8 +303,21 @@ finish_ap_fetch_if_done(ApFetchContext *ctx)
     if (ctx->pending_count > 0)
         return;
 
+    /* Cancelled (network already freed), or superseded by a newer
+     * fetch that was started while this one was still in flight --
+     * either way, drop the results without reporting them. */
+    if (ctx->aborted || ctx->generation != ctx->network->ap_generation)
+    {
+        free_ap_fetch_context(ctx);
+        return;
+    }
+
     /* Collapse duplicate SSIDs (the same network broadcasting on
-     * multiple APs/channels) down to their strongest instance. */
+     * multiple APs/channels) down to their strongest instance. The
+     * AP we're actually connected to always wins over a stronger
+     * sibling: otherwise, on a mesh/repeater setup, the strongest AP
+     * could replace the active one and the connected network would
+     * stop showing as connected. */
     GHashTable *best_by_ssid = g_hash_table_new(g_str_hash, g_str_equal);
 
     for (guint i = 0; i < ctx->results->len; i++)
@@ -218,8 +327,12 @@ finish_ap_fetch_if_done(ApFetchContext *ctx)
             continue; /* hidden/unnamed AP -- nothing sensible to show */
 
         ExtrasMenuAccessPoint *existing = g_hash_table_lookup(best_by_ssid, ap->ssid);
-        if (existing == NULL || ap->strength > existing->strength || ap->is_active)
+        if (existing == NULL ||
+            ap->is_active ||
+            (!existing->is_active && ap->strength > existing->strength))
+        {
             g_hash_table_insert(best_by_ssid, ap->ssid, ap);
+        }
     }
 
     GList *unique = g_hash_table_get_values(best_by_ssid);
@@ -259,6 +372,16 @@ finish_ap_fetch_if_done(ApFetchContext *ctx)
     g_list_free(unique);
     g_hash_table_destroy(best_by_ssid);
 
+    /* Remember each network's security scheme, so a later connect()
+     * knows what kind of profile to create. */
+    g_hash_table_remove_all(ctx->network->security_by_ssid);
+    for (guint k = 0; k < final_count; k++)
+    {
+        g_hash_table_insert(ctx->network->security_by_ssid,
+                            g_strdup(final_aps[k].ssid),
+                            GUINT_TO_POINTER((guint) final_aps[k].security));
+    }
+
     if (ctx->network->list_changed_callback != NULL)
     {
         ctx->network->list_changed_callback(TRUE, final_aps, final_count,
@@ -266,17 +389,7 @@ finish_ap_fetch_if_done(ApFetchContext *ctx)
     }
 
     free_ap_array(final_aps, final_count);
-
-    for (guint j = 0; j < ctx->results->len; j++)
-    {
-        ExtrasMenuAccessPoint *ap = g_ptr_array_index(ctx->results, j);
-        g_free(ap->ssid);
-        g_free(ap->bssid);
-        g_free(ap);
-    }
-    g_ptr_array_free(ctx->results, TRUE);
-    g_free(ctx->active_ap_path);
-    g_free(ctx);
+    free_ap_fetch_context(ctx);
 }
 
 /* Per-AP call context: pairs the shared fetch context with the one
@@ -317,8 +430,9 @@ on_single_ap_properties_finished(GObject *source, GAsyncResult *result, gpointer
         guint32 flags = flags_v != NULL ? g_variant_get_uint32(flags_v) : 0;
         guint32 wpa_flags = wpa_flags_v != NULL ? g_variant_get_uint32(wpa_flags_v) : 0;
         guint32 rsn_flags = rsn_flags_v != NULL ? g_variant_get_uint32(rsn_flags_v) : 0;
-        ap->secured = (wpa_flags != 0 || rsn_flags != 0);
         ap->security = derive_ap_security(flags, wpa_flags, rsn_flags);
+        ap->secured = security_needs_password(ap->security,
+                                               wpa_flags != 0 || rsn_flags != 0);
 
         ap->bssid = bssid_v != NULL ? g_variant_dup_string(bssid_v, NULL) : NULL;
         ap->frequency = frequency_v != NULL ? g_variant_get_uint32(frequency_v) : 0;
@@ -340,6 +454,10 @@ on_single_ap_properties_finished(GObject *source, GAsyncResult *result, gpointer
         g_variant_unref(props);
         g_variant_unref(reply);
     }
+    else if (call_was_cancelled(error))
+    {
+        ctx->aborted = TRUE; /* network is gone -- see finish_ap_fetch_if_done() */
+    }
     g_clear_error(&error);
 
     ctx->pending_count--;
@@ -349,18 +467,45 @@ on_single_ap_properties_finished(GObject *source, GAsyncResult *result, gpointer
     g_free(call_ctx);
 }
 
+/* Identifies one request for a fresh AP list: which network it's for
+ * and which generation it is (see ExtrasMenuNetwork::ap_generation). */
+typedef struct
+{
+    ExtrasMenuNetwork *network;
+    guint generation;
+} ScanRequestCtx;
+
 static void
 on_device_props_for_scan_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    ExtrasMenuNetwork *network = user_data;
+    ScanRequestCtx *request = user_data;
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        g_free(request);
+        return;
+    }
+
+    ExtrasMenuNetwork *network = request->network;
+    guint generation = request->generation;
+    g_free(request);
+
     if (reply == NULL)
     {
         g_clear_error(&error);
-        if (network->list_changed_callback != NULL)
+        if (generation == network->ap_generation && network->list_changed_callback != NULL)
             network->list_changed_callback(FALSE, NULL, 0, network->list_changed_user_data);
+        return;
+    }
+
+    /* A newer fetch was started while this one was in flight; it will
+     * report the up-to-date list, so don't bother with this one. */
+    if (generation != network->ap_generation)
+    {
+        g_variant_unref(reply);
         return;
     }
 
@@ -393,6 +538,7 @@ on_device_props_for_scan_finished(GObject *source, GAsyncResult *result, gpointe
     ctx->network = network;
     ctx->active_ap_path = active_ap_path;
     ctx->results = g_ptr_array_new();
+    ctx->generation = generation;
     ctx->pending_count = (guint) g_variant_n_children(ap_paths_v);
 
     GVariantIter iter;
@@ -414,7 +560,7 @@ on_device_props_for_scan_finished(GObject *source, GAsyncResult *result, gpointe
             g_variant_new("(s)", NM_ACCESS_POINT_IFACE),
             G_VARIANT_TYPE("(a{sv})"),
             G_DBUS_CALL_FLAGS_NONE,
-            -1, NULL,
+            -1, network->cancellable,
             on_single_ap_properties_finished, call_ctx);
     }
 
@@ -430,6 +576,13 @@ request_ap_list(ExtrasMenuNetwork *network)
     if (network->wifi_device_path == NULL)
         return;
 
+    /* Invalidates any fetch still in flight (see ap_generation). */
+    network->ap_generation++;
+
+    ScanRequestCtx *request = g_new0(ScanRequestCtx, 1);
+    request->network = network;
+    request->generation = network->ap_generation;
+
     g_dbus_connection_call(
         network->system_bus,
         NM_BUS_NAME,
@@ -439,11 +592,23 @@ request_ap_list(ExtrasMenuNetwork *network)
         g_variant_new("(s)", NM_WIRELESS_IFACE),
         G_VARIANT_TYPE("(a{sv})"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
-        on_device_props_for_scan_finished, network);
+        -1, network->cancellable,
+        on_device_props_for_scan_finished, request);
 }
 
 /* --- live change notifications ---------------------------------------- */
+
+#define AP_REFRESH_DEBOUNCE_MS 200
+
+static gboolean
+on_ap_refresh_timeout(gpointer user_data)
+{
+    ExtrasMenuNetwork *network = user_data;
+
+    network->ap_refresh_source_id = 0; /* returning G_SOURCE_REMOVE removes it */
+    request_ap_list(network);
+    return G_SOURCE_REMOVE;
+}
 
 static void
 on_ap_list_relevant_signal(GDBusConnection *connection, const gchar *sender_name,
@@ -462,9 +627,17 @@ on_ap_list_relevant_signal(GDBusConnection *connection, const gchar *sender_name
     /* Any of: device PropertiesChanged (covers ActiveAccessPoint
      * changing), AccessPointAdded, AccessPointRemoved -- all mean the
      * list we'd show the user is now stale. Re-fetch everything rather
-     * than trying to patch the list incrementally; scans are
-     * infrequent enough that this is cheap. */
-    request_ap_list(network);
+     * than trying to patch the list incrementally.
+     *
+     * A scan produces a burst of these signals, so the refresh is
+     * scheduled a moment out and further signals arriving before it
+     * fires are folded into it, instead of re-fetching (and making the
+     * UI rebuild the list) once per signal. */
+    if (network->ap_refresh_source_id == 0)
+    {
+        network->ap_refresh_source_id = g_timeout_add(AP_REFRESH_DEBOUNCE_MS,
+                                                       on_ap_refresh_timeout, network);
+    }
 }
 
 /* --- tracking the primary connection (drives the Wi-Fi/Ethernet pill) --- */
@@ -479,6 +652,12 @@ on_ip4config_properties_finished(GObject *source, GAsyncResult *result, gpointer
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        return;
+    }
+
     gchar *ip_address = NULL;
 
     if (reply != NULL)
@@ -530,7 +709,7 @@ request_ip4config(ExtrasMenuNetwork *network, const gchar *ip4config_path)
         g_variant_new("(s)", NM_IP4CONFIG_IFACE),
         G_VARIANT_TYPE("(a{sv})"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, network->cancellable,
         on_ip4config_properties_finished, network);
 }
 
@@ -598,6 +777,12 @@ on_active_connection_properties_finished(GObject *source, GAsyncResult *result, 
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        return;
+    }
+
     if (reply == NULL)
     {
         g_clear_error(&error);
@@ -654,6 +839,12 @@ on_primary_connection_path_finished(GObject *source, GAsyncResult *result, gpoin
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        return;
+    }
+
     if (reply == NULL)
     {
         g_clear_error(&error);
@@ -687,7 +878,7 @@ on_primary_connection_path_finished(GObject *source, GAsyncResult *result, gpoin
             g_variant_new("(s)", NM_CONNECTION_ACTIVE_IFACE),
             G_VARIANT_TYPE("(a{sv})"),
             G_DBUS_CALL_FLAGS_NONE,
-            -1, NULL,
+            -1, network->cancellable,
             on_active_connection_properties_finished, network);
     }
 
@@ -707,7 +898,7 @@ request_primary_connection_status(ExtrasMenuNetwork *network)
         g_variant_new("(ss)", NM_IFACE, "PrimaryConnection"),
         G_VARIANT_TYPE("(v)"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, network->cancellable,
         on_primary_connection_path_finished, network);
 }
 
@@ -746,7 +937,7 @@ request_wifi_enabled_state(ExtrasMenuNetwork *network)
         g_variant_new("(ss)", NM_IFACE, "WirelessEnabled"),
         G_VARIANT_TYPE("(v)"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, network->cancellable,
         on_get_wifi_enabled_finished, network);
 }
 
@@ -802,6 +993,14 @@ on_device_type_finished(GObject *source, GAsyncResult *result, gpointer user_dat
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        g_strfreev(ctx->paths);
+        g_free(ctx);
+        return;
+    }
+
     guint32 device_type = 0;
     if (reply != NULL)
     {
@@ -871,7 +1070,7 @@ device_walk_check_next(DeviceWalkCtx *ctx)
         g_variant_new("(ss)", NM_DEVICE_IFACE, "DeviceType"),
         G_VARIANT_TYPE("(v)"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, ctx->network->cancellable,
         on_device_type_finished, ctx);
 }
 
@@ -882,6 +1081,12 @@ on_get_devices_finished(GObject *source, GAsyncResult *result, gpointer user_dat
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        return;
+    }
+
     if (reply == NULL)
     {
         g_clear_error(&error);
@@ -933,7 +1138,7 @@ find_wifi_device(ExtrasMenuNetwork *network)
         NULL,
         G_VARIANT_TYPE("(ao)"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, network->cancellable,
         on_get_devices_finished, network);
 }
 
@@ -946,7 +1151,17 @@ on_bus_get_finished(GObject *source, GAsyncResult *result, gpointer user_data)
     (void) source;
 
     GError *error = NULL;
-    network->system_bus = g_bus_get_finish(result, &error);
+    GDBusConnection *bus = g_bus_get_finish(result, &error);
+
+    /* Cancelled means extras_menu_network_free() already ran and
+     * `network` no longer exists, so it can't be written to here. */
+    if (bus == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        return;
+    }
+
+    network->system_bus = bus;
 
     if (network->system_bus == NULL)
     {
@@ -973,15 +1188,85 @@ on_bus_get_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 #define NM_ACTIVE_CONNECTION_STATE_DEACTIVATING 3
 #define NM_ACTIVE_CONNECTION_STATE_DEACTIVATED  4
 
+#define CONNECTION_FAILED_MESSAGE \
+    "Connection failed (incorrect password or network unavailable)"
+
 typedef struct
 {
-    ExtrasMenuNetwork *network;
+    ExtrasMenuNetwork *network; /* only valid while !finished */
     ExtrasMenuNetworkConnectResultFunc callback;
     gpointer user_data;
     guint subscription_id;
     guint timeout_source_id;
     gboolean finished; /* guards against StateChanged firing again after we've already reported */
+
+    /* Profile that THIS attempt created via AddAndActivateConnection,
+     * or NULL if an existing saved profile was reused. If the attempt
+     * fails, a profile we created is deleted again (see
+     * finish_active_connection_watch()); one that was already there is
+     * never touched. */
+    gchar *created_profile_path;
+
+    /* One reference is held by network->watches until the watch
+     * finishes; the one-off State read in watch_active_connection()
+     * holds another until it completes. */
+    guint ref_count;
 } ActiveConnectionWatchCtx;
+
+static void
+watch_unref(ActiveConnectionWatchCtx *watch)
+{
+    if (--watch->ref_count > 0)
+        return;
+
+    g_free(watch->created_profile_path);
+    g_free(watch);
+}
+
+/* Drops the watch's signal subscription and timeout, if still active. */
+static void
+stop_watch_sources(ActiveConnectionWatchCtx *watch)
+{
+    if (watch->subscription_id != 0)
+    {
+        g_dbus_connection_signal_unsubscribe(watch->network->system_bus, watch->subscription_id);
+        watch->subscription_id = 0;
+    }
+    if (watch->timeout_source_id != 0)
+    {
+        g_source_remove(watch->timeout_source_id);
+        watch->timeout_source_id = 0;
+    }
+}
+
+/* Carries a failure report across the deletion of the failed attempt's
+ * profile (see finish_active_connection_watch()). */
+typedef struct
+{
+    ExtrasMenuNetworkConnectResultFunc callback;
+    gpointer user_data;
+    gchar *error_message;
+} FailedProfileCleanupCtx;
+
+static void
+on_failed_profile_deleted(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    FailedProfileCleanupCtx *cleanup = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    gboolean cancelled = (reply == NULL && call_was_cancelled(error));
+
+    if (reply != NULL)
+        g_variant_unref(reply);
+    g_clear_error(&error); /* a failed cleanup isn't worth surfacing; the connect failure is what matters */
+
+    if (!cancelled && cleanup->callback != NULL)
+        cleanup->callback(FALSE, cleanup->error_message, cleanup->user_data);
+
+    g_free(cleanup->error_message);
+    g_free(cleanup);
+}
 
 static void
 finish_active_connection_watch(ActiveConnectionWatchCtx *watch, gboolean success, const gchar *error_message)
@@ -990,15 +1275,44 @@ finish_active_connection_watch(ActiveConnectionWatchCtx *watch, gboolean success
         return;
     watch->finished = TRUE;
 
-    if (watch->subscription_id != 0)
-        g_dbus_connection_signal_unsubscribe(watch->network->system_bus, watch->subscription_id);
-    if (watch->timeout_source_id != 0)
-        g_source_remove(watch->timeout_source_id);
+    ExtrasMenuNetwork *network = watch->network;
 
-    if (watch->callback != NULL)
+    stop_watch_sources(watch);
+    network->watches = g_slist_remove(network->watches, watch);
+
+    if (!success && watch->created_profile_path != NULL)
+    {
+        /* This attempt created the profile and it never worked. If it
+         * were left behind, the next attempt would find it, "reuse" it
+         * and fail silently with the same wrong password forever --
+         * without ever asking again -- until the user thought to
+         * "Forget" the network. So delete it first, and only report the
+         * failure once that's done, so a retry that follows straight
+         * away (the caller prompting for a password again) can't see
+         * the stale profile. */
+        FailedProfileCleanupCtx *cleanup = g_new0(FailedProfileCleanupCtx, 1);
+        cleanup->callback = watch->callback;
+        cleanup->user_data = watch->user_data;
+        cleanup->error_message = g_strdup(error_message != NULL ? error_message : CONNECTION_FAILED_MESSAGE);
+
+        g_dbus_connection_call(
+            network->system_bus,
+            NM_BUS_NAME,
+            watch->created_profile_path,
+            NM_SETTINGS_CONNECTION_IFACE,
+            "Delete",
+            NULL,
+            NULL,
+            G_DBUS_CALL_FLAGS_NONE,
+            -1, network->cancellable,
+            on_failed_profile_deleted, cleanup);
+    }
+    else if (watch->callback != NULL)
+    {
         watch->callback(success, error_message, watch->user_data);
+    }
 
-    g_free(watch);
+    watch_unref(watch); /* the reference network->watches held */
 }
 
 static void
@@ -1034,8 +1348,7 @@ on_active_connection_state_changed(GDBusConnection *connection, const gchar *sen
          * aren't reliably distinguishable from the reason code alone
          * across NetworkManager versions. */
         (void) reason;
-        finish_active_connection_watch(watch, FALSE,
-                                        "Connection failed (incorrect password or network unavailable)");
+        finish_active_connection_watch(watch, FALSE, CONNECTION_FAILED_MESSAGE);
     }
     /* ACTIVATING and DEACTIVATING are intermediate -- keep waiting. */
 }
@@ -1061,9 +1374,39 @@ on_active_connection_watch_timeout(gpointer user_data)
  * lets us tell an actually-successful connection apart from a WPA
  * handshake that fails after the initial D-Bus call already returned
  * "accepted". */
+/* Result of the one-off State read in watch_active_connection(). */
+static void
+on_watch_initial_state_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    ActiveConnectionWatchCtx *watch = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    g_clear_error(&error); /* cancelled or failed: nothing to do, StateChanged/timeout still cover us */
+
+    if (reply != NULL)
+    {
+        GVariant *boxed = NULL;
+        g_variant_get(reply, "(v)", &boxed);
+        guint32 state = g_variant_get_uint32(boxed);
+        g_variant_unref(boxed);
+        g_variant_unref(reply);
+
+        /* finish_active_connection_watch() ignores us if the watch
+         * already finished through a signal in the meantime. */
+        if (state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED)
+            finish_active_connection_watch(watch, TRUE, NULL);
+        else if (state == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
+            finish_active_connection_watch(watch, FALSE, CONNECTION_FAILED_MESSAGE);
+    }
+
+    watch_unref(watch);
+}
+
 static void
 watch_active_connection(ExtrasMenuNetwork *network,
                          const gchar *active_connection_path,
+                         const gchar *created_profile_path,
                          ExtrasMenuNetworkConnectResultFunc callback,
                          gpointer user_data)
 {
@@ -1072,6 +1415,9 @@ watch_active_connection(ExtrasMenuNetwork *network,
     watch->callback = callback;
     watch->user_data = user_data;
     watch->finished = FALSE;
+    watch->created_profile_path = g_strdup(created_profile_path);
+    watch->ref_count = 1; /* owned by network->watches */
+    network->watches = g_slist_prepend(network->watches, watch);
 
     watch->subscription_id = g_dbus_connection_signal_subscribe(
         network->system_bus, NM_BUS_NAME,
@@ -1081,6 +1427,25 @@ watch_active_connection(ExtrasMenuNetwork *network,
 
     watch->timeout_source_id = g_timeout_add_seconds(
         ACTIVE_CONNECTION_WATCH_TIMEOUT_SECONDS, on_active_connection_watch_timeout, watch);
+
+    /* StateChanged only reports transitions that happen *after* we
+     * subscribed, but the activation call has already returned by now --
+     * on a fast connection (or a quick failure) the active connection
+     * may have reached its final state in between, and we'd wait the
+     * full timeout for a signal that already came and went. So read the
+     * current state once as well. */
+    watch->ref_count++;
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        active_connection_path,
+        "org.freedesktop.DBus.Properties",
+        "Get",
+        g_variant_new("(ss)", NM_CONNECTION_ACTIVE_IFACE, "State"),
+        G_VARIANT_TYPE("(v)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, network->cancellable,
+        on_watch_initial_state_finished, watch);
 }
 
 typedef struct
@@ -1105,6 +1470,13 @@ on_connect_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
 
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        g_free(ctx);
+        return;
+    }
+
     if (reply == NULL)
     {
         if (ctx->callback != NULL)
@@ -1128,8 +1500,19 @@ on_connect_finished(GObject *source, GAsyncResult *result, gpointer user_data)
     GVariant *active_path_v = g_variant_get_child_value(reply, n_children - 1);
     const gchar *active_path = g_variant_get_string(active_path_v, NULL);
 
-    watch_active_connection(ctx->network, active_path, ctx->callback, ctx->user_data);
+    /* Only AddAndActivateConnection's "(oo)" reply names a profile that
+     * THIS call just created (its first element). ActivateConnection's
+     * "(o)" reply means an existing profile was reused, which must
+     * never be deleted if the attempt fails. */
+    GVariant *created_profile_v = n_children >= 2 ? g_variant_get_child_value(reply, 0) : NULL;
+    const gchar *created_profile_path =
+        created_profile_v != NULL ? g_variant_get_string(created_profile_v, NULL) : NULL;
 
+    watch_active_connection(ctx->network, active_path, created_profile_path,
+                            ctx->callback, ctx->user_data);
+
+    if (created_profile_v != NULL)
+        g_variant_unref(created_profile_v);
     g_variant_unref(active_path_v);
     g_variant_unref(reply);
     g_free(ctx);
@@ -1141,7 +1524,7 @@ on_connect_finished(GObject *source, GAsyncResult *result, gpointer user_data)
  * see find_existing_connection_for_ssid() below, which is tried
  * first. */
 static GVariant *
-build_connection_settings(const gchar *ssid, const gchar *password)
+build_connection_settings(const gchar *ssid, const gchar *password, ExtrasMenuApSecurity security)
 {
     GVariantBuilder connection_builder;
     g_variant_builder_init(&connection_builder, G_VARIANT_TYPE("a{sa{sv}}"));
@@ -1164,16 +1547,53 @@ build_connection_settings(const gchar *ssid, const gchar *password)
     g_variant_builder_add(&connection_builder, "{s@a{sv}}", "802-11-wireless",
                            g_variant_builder_end(&wifi_section));
 
-    /* [802-11-wireless-security] -- only included for secured
-     * networks; NetworkManager infers WPA-PSK vs other schemes from
-     * the AP's own advertised capabilities when key-mgmt is "wpa-psk",
-     * which covers the overwhelming majority of home/office networks. */
-    if (password != NULL && password[0] != '\0')
+    /* [802-11-wireless-security] -- which key-mgmt to ask for depends on
+     * what the AP advertises; a profile whose key-mgmt doesn't match
+     * can never complete the handshake:
+     *   OPEN                 no section at all
+     *   OWE (Enhanced Open)  key-mgmt "owe", no password
+     *   WPA3-Personal        key-mgmt "sae" (the password goes in "psk")
+     *   WEP                  key-mgmt "none" + a WEP key
+     *   everything else      "wpa-psk" -- WPA, WPA2, WPA/WPA2 and the
+     *                        WPA2/WPA3 transitional mode (which accepts
+     *                        WPA2 clients, so it needs no special case)
+     * UNKNOWN (network not in the last scan, e.g. a hidden one) falls
+     * into the last bucket when a password was given, as before. */
+    gboolean have_password = (password != NULL && password[0] != '\0');
+
+    if (security == EXTRAS_MENU_AP_SECURITY_OWE)
     {
         GVariantBuilder security_section;
         g_variant_builder_init(&security_section, G_VARIANT_TYPE("a{sv}"));
         g_variant_builder_add(&security_section, "{sv}", "key-mgmt",
-                               g_variant_new_string("wpa-psk"));
+                               g_variant_new_string("owe"));
+        g_variant_builder_add(&connection_builder, "{s@a{sv}}", "802-11-wireless-security",
+                               g_variant_builder_end(&security_section));
+    }
+    else if (have_password && security == EXTRAS_MENU_AP_SECURITY_WEP)
+    {
+        GVariantBuilder security_section;
+        g_variant_builder_init(&security_section, G_VARIANT_TYPE("a{sv}"));
+        g_variant_builder_add(&security_section, "{sv}", "key-mgmt",
+                               g_variant_new_string("none"));
+        g_variant_builder_add(&security_section, "{sv}", "wep-key0",
+                               g_variant_new_string(password));
+        /* 1 = NM_WEP_KEY_TYPE_KEY: the text is the key itself (5/13
+         * ASCII characters or 10/26 hex digits), not a passphrase. */
+        g_variant_builder_add(&security_section, "{sv}", "wep-key-type",
+                               g_variant_new_uint32(1));
+        g_variant_builder_add(&security_section, "{sv}", "auth-alg",
+                               g_variant_new_string("open"));
+        g_variant_builder_add(&connection_builder, "{s@a{sv}}", "802-11-wireless-security",
+                               g_variant_builder_end(&security_section));
+    }
+    else if (have_password)
+    {
+        GVariantBuilder security_section;
+        g_variant_builder_init(&security_section, G_VARIANT_TYPE("a{sv}"));
+        g_variant_builder_add(&security_section, "{sv}", "key-mgmt",
+                               g_variant_new_string(security == EXTRAS_MENU_AP_SECURITY_WPA3
+                                                        ? "sae" : "wpa-psk"));
         g_variant_builder_add(&security_section, "{sv}", "psk",
                                g_variant_new_string(password));
         g_variant_builder_add(&connection_builder, "{s@a{sv}}", "802-11-wireless-security",
@@ -1245,10 +1665,28 @@ proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
             g_variant_new("(ooo)", existing_profile_path, "/", "/"),
             G_VARIANT_TYPE("(o)"),
             G_DBUS_CALL_FLAGS_NONE,
-            -1, NULL,
+            -1, ctx->network->cancellable,
             on_connect_finished, result_ctx);
     }
-    else if (ctx->requires_password && (ctx->password == NULL || ctx->password[0] == '\0'))
+    else if (lookup_known_security(ctx->network, ctx->ssid) == EXTRAS_MENU_AP_SECURITY_ENTERPRISE)
+    {
+        /* 802.1X needs a username, certificates and so on that we have
+         * no way to collect, and a password-only profile could never
+         * authenticate. An already-saved profile (handled above) still
+         * works; for a new one, say what's needed rather than creating
+         * a profile that's doomed to fail. */
+        if (ctx->result_callback != NULL)
+        {
+            ctx->result_callback(FALSE,
+                                  "This network uses enterprise (802.1X) authentication. "
+                                  "Set it up once in NetworkManager first, then it can be used from here.",
+                                  ctx->result_user_data);
+        }
+        g_free(result_ctx);
+    }
+    else if (security_needs_password(lookup_known_security(ctx->network, ctx->ssid),
+                                      ctx->requires_password) &&
+             (ctx->password == NULL || ctx->password[0] == '\0'))
     {
         /* No saved profile, this network needs a password, and we
          * don't have one -- refuse rather than creating a passwordless
@@ -1267,7 +1705,8 @@ proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
     }
     else
     {
-        GVariant *connection_settings = build_connection_settings(ctx->ssid, ctx->password);
+        GVariant *connection_settings = build_connection_settings(
+            ctx->ssid, ctx->password, lookup_known_security(ctx->network, ctx->ssid));
 
         g_dbus_connection_call(
             ctx->network->system_bus,
@@ -1278,7 +1717,7 @@ proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
             g_variant_new("(@a{sa{sv}}oo)", connection_settings, ctx->network->wifi_device_path, "/"),
             G_VARIANT_TYPE("(oo)"),
             G_DBUS_CALL_FLAGS_NONE,
-            -1, NULL,
+            -1, ctx->network->cancellable,
             on_connect_finished, result_ctx);
     }
 
@@ -1292,6 +1731,13 @@ on_profile_settings_finished(GObject *source, GAsyncResult *result, gpointer use
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        free_find_profile_ctx(ctx);
+        return;
+    }
+
     gboolean matches = FALSE;
 
     if (reply != NULL)
@@ -1347,7 +1793,7 @@ find_profile_check_next(FindProfileCtx *ctx)
         NULL,
         G_VARIANT_TYPE("(a{sa{sv}})"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, ctx->network->cancellable,
         on_profile_settings_finished, ctx);
 }
 
@@ -1358,6 +1804,13 @@ on_list_connections_finished(GObject *source, GAsyncResult *result, gpointer use
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        free_find_profile_ctx(ctx);
+        return;
+    }
+
     if (reply == NULL)
     {
         /* Couldn't even list profiles -- fall back to creating a new
@@ -1403,8 +1856,10 @@ extras_menu_network_new(ExtrasMenuNetworkListChangedFunc list_changed_callback,
     network->wifi_enabled_changed_user_data = user_data;
     network->wifi_device_path = NULL;
     network->watched_ip4config_path = NULL;
+    network->cancellable = g_cancellable_new();
+    network->security_by_ssid = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
-    g_bus_get(G_BUS_TYPE_SYSTEM, NULL, on_bus_get_finished, network);
+    g_bus_get(G_BUS_TYPE_SYSTEM, network->cancellable, on_bus_get_finished, network);
 
     return network;
 }
@@ -1489,7 +1944,7 @@ extras_menu_network_connect(ExtrasMenuNetwork *network,
         NULL,
         G_VARIANT_TYPE("(ao)"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, network->cancellable,
         on_list_connections_finished, ctx);
 }
 
@@ -1532,6 +1987,15 @@ typedef struct
 static void forget_check_next(ForgetCtx *ctx);
 
 static void
+free_forget_ctx(ForgetCtx *ctx)
+{
+    g_free(ctx->ssid);
+    g_free(ctx->first_error);
+    g_strfreev(ctx->profile_paths);
+    g_free(ctx);
+}
+
+static void
 finish_forget(ForgetCtx *ctx)
 {
     if (ctx->result_callback != NULL)
@@ -1555,10 +2019,7 @@ finish_forget(ForgetCtx *ctx)
         }
     }
 
-    g_free(ctx->ssid);
-    g_free(ctx->first_error);
-    g_strfreev(ctx->profile_paths);
-    g_free(ctx);
+    free_forget_ctx(ctx);
 }
 
 static void
@@ -1568,6 +2029,13 @@ on_profile_deleted(GObject *source, GAsyncResult *result, gpointer user_data)
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        free_forget_ctx(ctx);
+        return;
+    }
+
     if (reply != NULL)
     {
         ctx->deleted_count++;
@@ -1592,6 +2060,13 @@ on_forget_profile_settings_finished(GObject *source, GAsyncResult *result, gpoin
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        free_forget_ctx(ctx);
+        return;
+    }
+
     gboolean matches = FALSE;
 
     if (reply != NULL)
@@ -1632,7 +2107,7 @@ on_forget_profile_settings_finished(GObject *source, GAsyncResult *result, gpoin
             NULL,
             NULL,
             G_DBUS_CALL_FLAGS_NONE,
-            -1, NULL,
+            -1, ctx->network->cancellable,
             on_profile_deleted, ctx);
         return;
     }
@@ -1659,7 +2134,7 @@ forget_check_next(ForgetCtx *ctx)
         NULL,
         G_VARIANT_TYPE("(a{sa{sv}})"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, ctx->network->cancellable,
         on_forget_profile_settings_finished, ctx);
 }
 
@@ -1670,6 +2145,13 @@ on_forget_list_connections_finished(GObject *source, GAsyncResult *result, gpoin
     GError *error = NULL;
 
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        free_forget_ctx(ctx);
+        return;
+    }
+
     if (reply == NULL)
     {
         ctx->had_error = TRUE;
@@ -1727,7 +2209,7 @@ extras_menu_network_forget(ExtrasMenuNetwork *network,
         NULL,
         G_VARIANT_TYPE("(ao)"),
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
+        -1, network->cancellable,
         on_forget_list_connections_finished, ctx);
 }
 
@@ -1736,6 +2218,36 @@ extras_menu_network_free(ExtrasMenuNetwork *network)
 {
     if (network == NULL)
         return;
+
+    /* Cancel everything still in flight first. Cancelled calls still
+     * run their callbacks later (with G_IO_ERROR_CANCELLED), which is
+     * why each of them checks for that before touching `network` --
+     * see call_was_cancelled(). */
+    g_cancellable_cancel(network->cancellable);
+
+    if (network->ap_refresh_source_id != 0)
+        g_source_remove(network->ap_refresh_source_id);
+
+    /* Connection attempts still being watched: stop their signal
+     * subscriptions and timeouts, and drop them without reporting
+     * (the caller is shutting down, nobody is waiting for the result).
+     * A watch may still be referenced by its pending State read, which
+     * releases it when its cancelled callback runs. */
+    for (GSList *l = network->watches; l != NULL; l = l->next)
+    {
+        ActiveConnectionWatchCtx *watch = l->data;
+        watch->finished = TRUE;
+        if (network->system_bus != NULL)
+            stop_watch_sources(watch);
+        else if (watch->timeout_source_id != 0)
+            g_source_remove(watch->timeout_source_id);
+        watch->timeout_source_id = 0;
+        watch->subscription_id = 0;
+        watch->callback = NULL;
+        watch_unref(watch);
+    }
+    g_slist_free(network->watches);
+    network->watches = NULL;
 
     if (network->system_bus != NULL)
     {
@@ -1754,5 +2266,7 @@ extras_menu_network_free(ExtrasMenuNetwork *network)
 
     g_free(network->wifi_device_path);
     g_free(network->watched_ip4config_path);
+    g_clear_pointer(&network->security_by_ssid, g_hash_table_destroy);
+    g_clear_object(&network->cancellable);
     g_free(network);
 }
