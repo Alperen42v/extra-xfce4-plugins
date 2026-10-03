@@ -15,11 +15,12 @@ G_BEGIN_DECLS
  * doesn't care which.
  *
  * battery_label/battery_icon hand back the top bar's battery badge
- * pieces -- currently a fixed "100%" placeholder with a static icon,
- * not yet backed by a real UPower reading. screenshot_button/
- * settings_button/lock_button/power_button hand back the four
- * quick-action buttons in the top bar's top-right corner -- plain
- * icon buttons with no click behavior wired up yet.
+ * pieces (initially a "100%" placeholder; extras-menu.c keeps them in
+ * step with the UPower backend). quick_actions_box hands back the
+ * empty horizontal GtkBox at the top bar's right edge that holds the
+ * quick-action buttons -- popover.c doesn't create those buttons
+ * itself, since which ones exist is a user setting; quick-actions.c
+ * fills the box and keeps it up to date.
  *
  * The volume_scale and brightness_scale out-params give the caller
  * (extras-menu.c) handles to the two sliders so they can be wired up
@@ -57,15 +58,11 @@ G_BEGIN_DECLS
  *
  * The rest of the pill grid (Dark Mode/Aeroplane Mode/Balanced/...)
  * remains purely visual for now; only the sliders, the Bluetooth
- * toggle, and the network pill are backend-aware at this stage. The
- * top bar is purely visual in its entirety for now.
+ * toggle, and the network pill are backend-aware at this stage.
  */
 GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
                                             GtkWidget **battery_icon,
-                                            GtkWidget **screenshot_button,
-                                            GtkWidget **settings_button,
-                                            GtkWidget **lock_button,
-                                            GtkWidget **power_button,
+                                            GtkWidget **quick_actions_box,
                                             GtkWidget **volume_scale,
                                             GtkWidget **volume_icon,
                                             GtkWidget **brightness_scale,
@@ -79,6 +76,11 @@ GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
                                             GtkWidget **network_spinner,
                                             GtkWidget **network_revealer,
                                             GtkWidget **network_list_box);
+
+/* Creates an empty button styled like the other top-bar buttons; the
+ * caller puts its own icon inside. This is how quick-actions.c makes
+ * the user-configured quick-action buttons match the rest of the bar. */
+GtkWidget *extras_menu_top_bar_button_new(void);
 
 G_END_DECLS
 

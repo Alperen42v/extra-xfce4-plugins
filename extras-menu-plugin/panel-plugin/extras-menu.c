@@ -1,6 +1,6 @@
 #include "extras-menu.h"
 #include "popover.h"
-#include "preferences.h"
+#include "preferences/preferences.h"
 #include "quick-actions.h"
 #include "network.h"
 
@@ -920,10 +920,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->battery_label = NULL;
     plugin->battery_icon = NULL;
     plugin->battery = NULL;
-    plugin->screenshot_button = NULL;
-    plugin->settings_button = NULL;
-    plugin->lock_button = NULL;
-    plugin->power_button = NULL;
+    plugin->quick_actions_box = NULL;
     plugin->volume_scale = NULL;
     plugin->volume_icon = NULL;
     plugin->audio = NULL;
@@ -1377,10 +1374,7 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 
     GtkWidget *content = extras_menu_popover_content_new(&plugin->battery_label,
                                                            &plugin->battery_icon,
-                                                           &plugin->screenshot_button,
-                                                           &plugin->settings_button,
-                                                           &plugin->lock_button,
-                                                           &plugin->power_button,
+                                                           &plugin->quick_actions_box,
                                                            &plugin->volume_scale,
                                                            &plugin->volume_icon,
                                                            &plugin->brightness_scale,
@@ -1412,11 +1406,8 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     }
     plugin->battery = extras_menu_battery_new(on_battery_changed, plugin);
 
-    extras_menu_quick_actions_connect(plugin->screenshot_button,
-                                       plugin->settings_button,
-                                       plugin->lock_button,
-                                       plugin->power_button,
-                                       close_dropdown, plugin);
+    extras_menu_quick_actions_attach(plugin->quick_actions_box,
+                                      close_dropdown, plugin);
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives
@@ -1555,7 +1546,7 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                       G_CALLBACK(on_plugin_free_data), plugin);
 
     /* --- "Properties..." entry in the plugin's right-click panel menu,
-     * opening the (currently minimal) preferences dialog --- */
+     * opening the preferences dialog --- */
     xfce_panel_plugin_menu_show_configure(panel_plugin);
     g_signal_connect(panel_plugin, "configure-plugin",
                       G_CALLBACK(on_plugin_configure), plugin);

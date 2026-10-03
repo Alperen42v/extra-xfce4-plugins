@@ -11,26 +11,27 @@ G_BEGIN_DECLS
 typedef void (*ExtrasMenuQuickActionsCloseFunc)(gpointer user_data);
 
 /*
- * Wires up the four quick-action buttons in the popover's top bar.
- * Any button argument may be NULL.
+ * Fills the dropdown's top-bar button container with the user's
+ * quick-action buttons (see preferences/quick-actions-config.h for the
+ * list and where it's stored), and keeps it up to date: whenever the
+ * preferences editor saves a change, the container's buttons are
+ * rebuilt on the spot.
  *
- *   screenshot_button -> xfce4-screenshooter (its own capture dialog)
- *   settings_button   -> xfce4-settings-manager
- *   lock_button       -> xflock4 (XFCE's lock wrapper; uses whichever
- *                        locker is installed: xfce4-screensaver,
- *                        light-locker, xscreensaver, ...)
- *   power_button      -> xfce4-session-logout (logout/restart/shutdown)
+ * `box` is the GtkBox popover.c leaves empty for this purpose (may be
+ * NULL, in which case nothing happens). Each button shows its
+ * configured icon, uses its name as the tooltip and, when clicked,
+ * runs its configured command. Buttons whose command is empty are
+ * skipped. The live-update hookup is dropped automatically when `box`
+ * is destroyed.
  *
  * close_func (may be NULL) is invoked with close_data before each
- * launch. Every button's behavior lives in quick-actions.c, so
- * extras-menu.c only needs this one call from construct().
+ * launch. Everything about the buttons' behavior lives in
+ * quick-actions.c, so extras-menu.c only needs this one call from
+ * construct().
  */
-void extras_menu_quick_actions_connect(GtkWidget *screenshot_button,
-                                        GtkWidget *settings_button,
-                                        GtkWidget *lock_button,
-                                        GtkWidget *power_button,
-                                        ExtrasMenuQuickActionsCloseFunc close_func,
-                                        gpointer close_data);
+void extras_menu_quick_actions_attach(GtkWidget *box,
+                                       ExtrasMenuQuickActionsCloseFunc close_func,
+                                       gpointer close_data);
 
 G_END_DECLS
 

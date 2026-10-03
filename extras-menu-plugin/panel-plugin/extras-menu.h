@@ -37,17 +37,15 @@ struct _ExtrasMenuPlugin
      * gtk_window_set_keep_above() sidesteps that entirely. */
     GtkWidget *popover;
 
-    /* Top status bar inside the popover: battery badge + four
-     * quick-action buttons (screenshot/settings/lock/power). Purely
-     * visual for now -- no backend behind any of these yet, so no
-     * guard/cache fields alongside them the way the other widgets
-     * below have. */
+    /* Top status bar inside the popover: battery badge + the
+     * quick-action buttons. The buttons themselves are user settings
+     * (see preferences/quick-actions-config.h), so there are no
+     * per-button fields here: quick_actions_box is just the empty
+     * container popover.c provides, which quick-actions.c fills in and
+     * keeps up to date by itself. */
     GtkWidget *battery_label;
     GtkWidget *battery_icon;
-    GtkWidget *screenshot_button;
-    GtkWidget *settings_button;
-    GtkWidget *lock_button;
-    GtkWidget *power_button;
+    GtkWidget *quick_actions_box;
 
     /* UPower battery backend driving the badge above. The badge is
      * hidden until the backend reports a battery is present, so
