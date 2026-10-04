@@ -28,9 +28,16 @@ G_BEGIN_DECLS
  * brightness) -- both to push user-driven changes out, and to reflect
  * external changes back in. volume_icon hands back the volume row's
  * icon GtkImage, so the caller can swap it to a "muted" icon at
- * 0%/when muted. bluetooth_toggle hands back the Bluetooth pill's
- * GtkToggleButton so the caller can wire it up to the BlueZ backend
- * the same way.
+ * 0%/when muted.
+ *
+ * The Bluetooth pill is a split pill like the network one: bluetooth_toggle
+ * is its main GtkToggleButton (adapter on/off), bluetooth_expand_button
+ * the small chevron button that reveals bluetooth_revealer, and
+ * bluetooth_expand_chevron the chevron's GtkImage so the caller can flip
+ * its direction with the list's open/closed state. bluetooth_list_box is
+ * the GtkListBox inside the revealer, ready to be filled with one row per
+ * device. The revealer is collapsed by default; the caller decides when
+ * to open it (and keeps it and the Wi-Fi list from being open together).
  *
  * The network pill is split into two independently clickable regions
  * (see extras_menu_make_split_pill() in popover.c): network_toggle is
@@ -67,6 +74,10 @@ GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
                                             GtkWidget **volume_icon,
                                             GtkWidget **brightness_scale,
                                             GtkWidget **bluetooth_toggle,
+                                            GtkWidget **bluetooth_expand_button,
+                                            GtkWidget **bluetooth_expand_chevron,
+                                            GtkWidget **bluetooth_revealer,
+                                            GtkWidget **bluetooth_list_box,
                                             GtkWidget **network_toggle,
                                             GtkWidget **network_pill_label,
                                             GtkWidget **network_pill_icon,

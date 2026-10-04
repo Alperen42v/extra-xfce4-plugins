@@ -62,10 +62,30 @@ struct _ExtrasMenuPlugin
     GtkWidget *brightness_scale;
     ExtrasMenuBrightness *brightness;
 
-    /* Bluetooth pill toggle inside the popover, and the backend
-     * driving it (adapter power on/off only, for now) */
+    /* Bluetooth pill inside the popover, split into two regions like
+     * the network pill: bluetooth_toggle (turns the adapter on/off) and
+     * bluetooth_expand_button (the small chevron, reveals
+     * bluetooth_revealer's device list), plus the backend driving them. */
     GtkWidget *bluetooth_toggle;
+    GtkWidget *bluetooth_expand_button;
+    GtkWidget *bluetooth_expand_chevron;
+    GtkWidget *bluetooth_revealer;
+    GtkWidget *bluetooth_list_box;
     ExtrasMenuBluetooth *bluetooth;
+
+    /* Maps device path (owned gchar*) -> the GtkListBoxRow currently
+     * showing it (borrowed -- rows belong to bluetooth_list_box), so a
+     * row's "Connecting.../Pairing..." label can be updated without a
+     * linear search. Rebuilt every time the device list is repopulated. */
+    GHashTable *bluetooth_row_by_path;
+
+    /* The device a connect/disconnect/pair request is currently running
+     * for (owned path, NULL if none), and the sentence to show if it
+     * fails. Only one request runs at a time; clicks on rows while one
+     * is running are ignored. */
+    gchar *bluetooth_busy_path;
+    const gchar *bluetooth_busy_text;           /* shown on that row meanwhile ("Connecting...") */
+    const gchar *bluetooth_busy_failure_title;
 
     /* Network pill (labeled "Wi-Fi" or "Ethernet" depending on the
      * active connection) inside the popover, split into two regions:

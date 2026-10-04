@@ -368,11 +368,46 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWi
     return row;
 }
 
+/* A collapsed, scrollable list that slides open below the pill grid
+ * (used for the Wi-Fi network list and the Bluetooth device list). Full
+ * width rather than part of the two-column grid, since a list of names
+ * doesn't fit that layout. Starts collapsed; the caller decides when to
+ * reveal it. out_list_box (optional) hands back the GtkListBox inside,
+ * ready to be filled with rows. */
+static GtkWidget *
+extras_menu_make_list_revealer(GtkWidget **out_list_box)
+{
+    GtkWidget *revealer = gtk_revealer_new();
+    gtk_revealer_set_transition_type(GTK_REVEALER(revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+    gtk_revealer_set_reveal_child(GTK_REVEALER(revealer), FALSE);
+
+    GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    /* Cap the list's height so a long result doesn't make the dropdown
+     * grow to fill the whole screen -- it scrolls instead. */
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scrolled), 200);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scrolled), TRUE);
+
+    GtkWidget *list_box = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
+    gtk_container_add(GTK_CONTAINER(scrolled), list_box);
+    gtk_container_add(GTK_CONTAINER(revealer), scrolled);
+
+    if (out_list_box != NULL)
+        *out_list_box = list_box;
+
+    return revealer;
+}
+
 GtkWidget *
 extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_icon,
                                  GtkWidget **quick_actions_box,
                                  GtkWidget **volume_scale, GtkWidget **volume_icon,
                                  GtkWidget **brightness_scale, GtkWidget **bluetooth_toggle,
+                                 GtkWidget **bluetooth_expand_button,
+                                 GtkWidget **bluetooth_expand_chevron,
+                                 GtkWidget **bluetooth_revealer, GtkWidget **bluetooth_list_box,
                                  GtkWidget **network_toggle, GtkWidget **network_pill_label,
                                  GtkWidget **network_pill_icon, GtkWidget **network_expand_button,
                                  GtkWidget **network_expand_chevron,
@@ -448,9 +483,19 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
      * state comes from the Bluetooth backend shortly after the
      * dropdown is built, same startup pattern as the volume/brightness
      * sliders (they start at 0 until their backends report in). */
-    GtkWidget *bluetooth = extras_menu_make_pill_toggle("bluetooth-symbolic", "Bluetooth", FALSE, FALSE);
+    GtkWidget *bluetooth_main_toggle = NULL;
+    GtkWidget *bluetooth_expand = NULL;
+    GtkWidget *bluetooth_chevron = NULL;
+    GtkWidget *bluetooth = extras_menu_make_split_pill("bluetooth-symbolic", "Bluetooth",
+                                                         &bluetooth_main_toggle, NULL, NULL,
+                                                         &bluetooth_expand, &bluetooth_chevron,
+                                                         NULL, NULL);
     if (bluetooth_toggle != NULL)
-        *bluetooth_toggle = bluetooth;
+        *bluetooth_toggle = bluetooth_main_toggle;
+    if (bluetooth_expand_button != NULL)
+        *bluetooth_expand_button = bluetooth_expand;
+    if (bluetooth_expand_chevron != NULL)
+        *bluetooth_expand_chevron = bluetooth_chevron;
 
     GtkWidget *balanced = extras_menu_make_pill_toggle("weather-clear-symbolic", "Balanced", FALSE, FALSE);
 
@@ -466,32 +511,26 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
 
     gtk_box_pack_start(GTK_BOX(root), grid, FALSE, FALSE, 0);
 
-    /* --- Wi-Fi network list, hidden by default, revealed when the
-     * "Wi-Fi" pill above is clicked. Full width (not part of the 2x3
-     * grid) since a network list doesn't fit the two-column layout. */
-    GtkWidget *revealer = gtk_revealer_new();
-    gtk_revealer_set_transition_type(GTK_REVEALER(revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
-    gtk_revealer_set_reveal_child(GTK_REVEALER(revealer), FALSE);
-
-    GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
-                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    /* Cap the list's height so a long scan result doesn't make the
-     * dropdown grow to fill the whole screen -- it scrolls instead. */
-    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scrolled), 200);
-    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scrolled), TRUE);
-
-    GtkWidget *list_box = gtk_list_box_new();
-    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
-    gtk_container_add(GTK_CONTAINER(scrolled), list_box);
-    gtk_container_add(GTK_CONTAINER(revealer), scrolled);
-
-    gtk_box_pack_start(GTK_BOX(root), revealer, FALSE, FALSE, 0);
+    /* --- Wi-Fi network list and Bluetooth device list, hidden by
+     * default, each revealed by the chevron on its own pill above. The
+     * caller keeps at most one of them open at a time. --- */
+    GtkWidget *wifi_list = NULL;
+    GtkWidget *wifi_revealer = extras_menu_make_list_revealer(&wifi_list);
+    gtk_box_pack_start(GTK_BOX(root), wifi_revealer, FALSE, FALSE, 0);
 
     if (network_revealer != NULL)
-        *network_revealer = revealer;
+        *network_revealer = wifi_revealer;
     if (network_list_box != NULL)
-        *network_list_box = list_box;
+        *network_list_box = wifi_list;
+
+    GtkWidget *bluetooth_list = NULL;
+    GtkWidget *bluetooth_reveal = extras_menu_make_list_revealer(&bluetooth_list);
+    gtk_box_pack_start(GTK_BOX(root), bluetooth_reveal, FALSE, FALSE, 0);
+
+    if (bluetooth_revealer != NULL)
+        *bluetooth_revealer = bluetooth_reveal;
+    if (bluetooth_list_box != NULL)
+        *bluetooth_list_box = bluetooth_list;
 
     gtk_widget_show_all(root);
     /* The revealer's child (scrolled/list_box) was just made visible
