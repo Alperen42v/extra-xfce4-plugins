@@ -371,7 +371,7 @@ build_row(PageState *st, guint index)
     GtkWidget *icon_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(icon_entry), action->icon);
     gtk_entry_set_placeholder_text(GTK_ENTRY(icon_entry), "Icon name or image file");
-    gtk_entry_set_width_chars(GTK_ENTRY(icon_entry), 20);
+    gtk_entry_set_width_chars(GTK_ENTRY(icon_entry), 27);
     gtk_widget_set_tooltip_text(icon_entry,
         "A theme icon name (e.g. camera-photo-symbolic) or the path of an image file.");
 

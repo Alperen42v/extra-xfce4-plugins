@@ -1,5 +1,27 @@
 #include "preferences.h"
+#include "home-page.h"
 #include "quick-actions-page.h"
+
+/*
+ * The dialog is a sidebar of sections on the left and the selected
+ * section's page on the right, so settings don't pile up on one long
+ * screen as the plugin grows. The first entry below is what opens.
+ *
+ * To add a section: write a function returning its page widget (see
+ * home-page.h / quick-actions-page.h for the shape), then add one line
+ * to this table. The sidebar entry and the page switching come for free.
+ */
+typedef struct
+{
+    const gchar *name;   /* internal id, unique */
+    const gchar *title;  /* sidebar label */
+    GtkWidget *(*build)(void);
+} PreferencesSection;
+
+static const PreferencesSection sections[] = {
+    { "home",          "Home",                 extras_menu_home_page_new },
+    { "quick-actions", "Quick action buttons", extras_menu_quick_actions_page_new },
+};
 
 /* The one open preferences dialog, or NULL. Cleared automatically when
  * the dialog is destroyed (see gtk_widget_destroyed below). */
@@ -32,30 +54,39 @@ extras_menu_preferences_show(XfcePanelPlugin *panel_plugin)
     preferences_dialog = dialog;
     g_signal_connect(dialog, "destroy", G_CALLBACK(gtk_widget_destroyed), &preferences_dialog);
 
-    gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
-    gtk_container_set_border_width(GTK_CONTAINER(dialog), 12);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 720, -1);
 
     GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(box), 8);
-    gtk_container_add(GTK_CONTAINER(content_area), box);
+    GtkWidget *layout = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_box_pack_start(GTK_BOX(content_area), layout, TRUE, TRUE, 0);
 
-    GtkWidget *title_label = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(title_label), "<b>Extras Menu</b>");
-    gtk_label_set_xalign(GTK_LABEL(title_label), 0.0);
-    gtk_box_pack_start(GTK_BOX(box), title_label, FALSE, FALSE, 0);
+    /* The stack is homogeneous by default, so the dialog is as large as
+     * its biggest page and doesn't resize when switching sections. */
+    GtkWidget *stack = gtk_stack_new();
+    gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
+    gtk_widget_set_hexpand(stack, TRUE);
 
-    gchar *version_text = g_strdup_printf("Version %s", EXTRAS_MENU_VERSION);
-    GtkWidget *version_label = gtk_label_new(version_text);
-    g_free(version_text);
-    gtk_label_set_xalign(GTK_LABEL(version_label), 0.0);
-    gtk_style_context_add_class(gtk_widget_get_style_context(version_label), "dim-label");
-    gtk_box_pack_start(GTK_BOX(box), version_label, FALSE, FALSE, 0);
+    for (guint i = 0; i < G_N_ELEMENTS(sections); i++)
+    {
+        GtkWidget *page = sections[i].build();
+        gtk_widget_set_margin_start(page, 18);
+        gtk_widget_set_margin_end(page, 18);
+        gtk_widget_set_margin_top(page, 16);
+        gtk_widget_set_margin_bottom(page, 16);
+        gtk_stack_add_titled(GTK_STACK(stack), page, sections[i].name, sections[i].title);
+    }
 
-    GtkWidget *separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_box_pack_start(GTK_BOX(box), separator, FALSE, FALSE, 4);
+    /* The first section added is the one shown on open; stated
+     * explicitly so reordering the table can't change that by accident. */
+    gtk_stack_set_visible_child_name(GTK_STACK(stack), sections[0].name);
 
-    gtk_box_pack_start(GTK_BOX(box), extras_menu_quick_actions_page_new(), TRUE, TRUE, 0);
+    GtkWidget *sidebar = gtk_stack_sidebar_new();
+    gtk_stack_sidebar_set_stack(GTK_STACK_SIDEBAR(sidebar), GTK_STACK(stack));
+    gtk_widget_set_size_request(sidebar, 190, -1);
+
+    gtk_box_pack_start(GTK_BOX(layout), sidebar, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(layout), gtk_separator_new(GTK_ORIENTATION_VERTICAL), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(layout), stack, TRUE, TRUE, 0);
 
     g_signal_connect(dialog, "response", G_CALLBACK(on_dialog_response), NULL);
 
