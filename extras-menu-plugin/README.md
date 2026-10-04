@@ -49,6 +49,5 @@ It can be added to the panel by right-clicking → Panel → Add New Items...
 and selecting "Extras Menu".
 
 ### Notes
-1. It's called extras menu now, but I'm planning to do something like Gnome-quick-settings or Quick-settings-Gnome-style in the future. 
-2. I will do install.sh in the future, but I am currently in code logic and I continue to develop. (I will do it soon.) 
-3. I added some things for example, Dark Mode or Balanced random, I plan to make the default layout more useful when it develops more in the future.
+1. I will do install.sh in the future, but I am currently in code logic and I continue to develop. (I will do it soon.) 
+2. I added some things for example, Dark Mode or Balanced random, I plan to make the default layout more useful when it develops more in the future.

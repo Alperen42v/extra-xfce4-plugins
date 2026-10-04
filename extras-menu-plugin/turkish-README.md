@@ -48,7 +48,5 @@ xfce4-panel -r
 Panelde sağ tık → Panel → Öğe Ekle... üzerinden "Extras Menu" olarak eklenebilir.
 
 ## Notlar
-
-1. şuan ismi extras menu ama gelecekte Gnome-quick-settings veya Quick-settings-Gnome-style gibi bişi yapmayı planlıyorum.
-2. gelecekte install.sh yapacağım ama şuan kod mantığındayım ve geliştirmeye devam ediyorum. (yakın zamanda yapacağım.)
-3. bazı şeyleri örneğin dark mode veya balanced rasgele ekledim gelecekte daha geliştiğinde varsayılan gelen düzeni daha kullanışlı yapmayı planlıyorum.
+1. gelecekte install.sh yapacağım ama şuan kod mantığındayım ve geliştirmeye devam ediyorum. (yakın zamanda yapacağım.)
+2. bazı şeyleri örneğin dark mode veya balanced rasgele ekledim gelecekte daha geliştiğinde varsayılan gelen düzeni daha kullanışlı yapmayı planlıyorum.
