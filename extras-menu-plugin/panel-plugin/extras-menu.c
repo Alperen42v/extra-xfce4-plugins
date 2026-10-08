@@ -76,6 +76,63 @@ show_message_dialog(ExtrasMenuPlugin *plugin, GtkMessageType type,
     gtk_widget_show(dialog);
 }
 
+/* --- click-away-to-close -------------------------------------------------------
+ *
+ * The dropdown is a GTK_WINDOW_POPUP, which the window manager never
+ * gives keyboard focus to, so "close when focus leaves" alone can't
+ * notice clicks on the desktop, other windows or other panel plugins.
+ * Like GTK's own menus, the dropdown therefore grabs the pointer while
+ * it is open. With owner_events set, clicks on this process's own
+ * windows (the panel button, our dialogs, context menus) still go to
+ * those windows as usual; every other click is reported to the dropdown
+ * instead, where on_dropdown_button_press() closes it if it landed
+ * outside. Only pointing devices are grabbed, never the keyboard. */
+
+static void
+grab_dropdown_input(ExtrasMenuPlugin *plugin)
+{
+    if (plugin->popover == NULL || !gtk_widget_get_visible(plugin->popover))
+        return;
+
+    GdkWindow *window = gtk_widget_get_window(plugin->popover);
+    if (window == NULL)
+        return;
+
+    GdkSeat *seat = gdk_display_get_default_seat(gtk_widget_get_display(plugin->popover));
+    GdkGrabStatus status = gdk_seat_grab(seat, window, GDK_SEAT_CAPABILITY_ALL_POINTING,
+                                          TRUE, NULL, NULL, NULL, NULL);
+    if (status != GDK_GRAB_SUCCESS)
+        g_debug("extras-menu: pointer grab failed (%d)", (gint) status);
+}
+
+static void
+release_dropdown_input(ExtrasMenuPlugin *plugin)
+{
+    if (plugin->popover == NULL)
+        return;
+
+    gdk_seat_ungrab(gdk_display_get_default_seat(gtk_widget_get_display(plugin->popover)));
+}
+
+/* A right-click context menu takes over the pointer grab while it is
+ * open, and it is gone for good once the menu closes. Take it back
+ * afterwards (from an idle, so the menu has finished releasing its own
+ * grab first), otherwise click-away would stop working after the
+ * first context menu. */
+static gboolean
+regrab_dropdown_input_idle(gpointer user_data)
+{
+    grab_dropdown_input(user_data);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+on_context_menu_done(GtkMenuShell *menu, gpointer user_data)
+{
+    (void) menu;
+    g_idle_add(regrab_dropdown_input_idle, user_data);
+}
+
 /* Opens/closes the Wi-Fi list revealer and keeps the chevron's
  * direction in step with it (pan-down while open, pan-end while
  * closed). Both widgets may not exist yet early in startup. */
@@ -903,6 +960,7 @@ on_network_list_button_press(GtkWidget *list_box, GdkEventButton *event, gpointe
      * so it would leak once dismissed -- tie its lifetime to being
      * dismissed instead. */
     g_signal_connect(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), NULL);
+    g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_done), plugin);
 
     gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *) event);
 
@@ -1168,12 +1226,16 @@ on_toggle_button_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
  * Takes a gpointer so it can double as an
  * ExtrasMenuQuickActionsCloseFunc. */
 /* The dropdown was hidden (by any route: clicking away, the panel button,
- * a quick action). A scan must not keep running behind a window nobody
- * can see, so close the device list, which also stops scanning. */
+ * a quick action). Both lists are collapsed so the dropdown always
+ * opens in its compact form next time, instead of coming back with a
+ * list left open. Closing the Bluetooth list also stops its scan, which
+ * must not keep running behind a window nobody can see. */
 static void
 on_dropdown_hidden(GtkWidget *widget, ExtrasMenuPlugin *plugin)
 {
     (void) widget;
+    release_dropdown_input(plugin);
+    set_network_list_open(plugin, FALSE);
     set_bluetooth_list_open(plugin, FALSE);
 }
 
@@ -1184,6 +1246,49 @@ close_dropdown(gpointer user_data)
 
     gtk_widget_hide(plugin->popover);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(plugin->toggle_button), FALSE);
+}
+
+/* The dropdown's X window is now mapped, so the pointer can be grabbed
+ * (a grab needs a viewable window, which it is not yet right after
+ * gtk_window_present()). */
+static gboolean
+on_dropdown_map_event(GtkWidget *widget, GdkEvent *event, ExtrasMenuPlugin *plugin)
+{
+    (void) widget;
+    (void) event;
+
+    grab_dropdown_input(plugin);
+    return FALSE;
+}
+
+/* With the pointer grabbed (see grab_dropdown_input()), a click that
+ * lands outside the dropdown -- on the desktop, another window, another
+ * panel plugin -- is delivered here. Compared in root coordinates so it
+ * doesn't matter which child window the event was reported against.
+ * Ignored while one of our own dialogs is open, same as the focus-out
+ * handler. */
+static gboolean
+on_dropdown_button_press(GtkWidget *widget, GdkEventButton *event, ExtrasMenuPlugin *plugin)
+{
+    if (plugin->open_dialog_count > 0)
+        return GDK_EVENT_PROPAGATE;
+
+    GdkWindow *window = gtk_widget_get_window(widget);
+    if (window == NULL)
+        return GDK_EVENT_PROPAGATE;
+
+    gint origin_x = 0, origin_y = 0;
+    gdk_window_get_origin(window, &origin_x, &origin_y);
+
+    gint width = gtk_widget_get_allocated_width(widget);
+    gint height = gtk_widget_get_allocated_height(widget);
+
+    if (event->x_root >= origin_x && event->x_root < origin_x + width &&
+        event->y_root >= origin_y && event->y_root < origin_y + height)
+        return GDK_EVENT_PROPAGATE; /* inside: a normal click on the dropdown */
+
+    close_dropdown(plugin);
+    return GDK_EVENT_STOP;
 }
 
 /* Since we're using a plain GtkWindow instead of a GtkPopover, we lose
@@ -1648,6 +1753,7 @@ on_bluetooth_list_button_press(GtkWidget *list_box, GdkEventButton *event, gpoin
 
     gtk_widget_show_all(menu);
     g_signal_connect(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), NULL);
+    g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_done), plugin);
     gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *) event);
 
     return GDK_EVENT_STOP;
@@ -1928,6 +2034,14 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                       G_CALLBACK(on_dropdown_focus_out), plugin);
     g_signal_connect(plugin->popover, "hide",
                       G_CALLBACK(on_dropdown_hidden), plugin);
+
+    /* Click-away-to-close: grab the pointer once mapped, and close on
+     * any click outside the window. See grab_dropdown_input(). */
+    gtk_widget_add_events(plugin->popover, GDK_BUTTON_PRESS_MASK);
+    g_signal_connect(plugin->popover, "map-event",
+                      G_CALLBACK(on_dropdown_map_event), plugin);
+    g_signal_connect(plugin->popover, "button-press-event",
+                      G_CALLBACK(on_dropdown_button_press), plugin);
 
     /* --- audio backend: connects asynchronously, reports state (and
      * every subsequent change) through on_audio_changed --- */
