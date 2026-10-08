@@ -114,6 +114,95 @@ set_bluetooth_list_open(ExtrasMenuPlugin *plugin, gboolean open)
         extras_menu_bluetooth_set_discovering(plugin->bluetooth, open);
 }
 
+/* --- panel button icons ------------------------------------------------------
+ *
+ * The panel button shows three status icons (network, volume, battery)
+ * instead of a chevron. Each update_panel_*() below is called from the
+ * matching backend callback, next to the code that updates the
+ * dropdown's own widgets. All of them tolerate the icon not existing yet. */
+
+static void
+update_panel_network_icon(ExtrasMenuPlugin *plugin)
+{
+    if (plugin->panel_network_icon == NULL)
+        return;
+
+    const gchar *icon_name;
+
+    if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET)
+        icon_name = "network-wired-symbolic";
+    else if (plugin->network_wifi_has_enabled_state && !plugin->network_wifi_last_enabled)
+        icon_name = "network-wireless-disabled-symbolic"; /* radio switched off */
+    else if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_WIFI)
+        icon_name = "network-wireless-symbolic";
+    else
+        icon_name = "network-wireless-offline-symbolic";
+
+    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_network_icon),
+                                  icon_name, GTK_ICON_SIZE_BUTTON);
+}
+
+/* Speaker icon for a volume level; muted and 0% look the same to the
+ * user, so both get the crossed-out icon. Shared by the dropdown's
+ * volume row and the panel button. */
+static const gchar *
+volume_icon_name(guint volume_percent, gboolean muted)
+{
+    if (muted || volume_percent == 0)
+        return "audio-volume-muted-symbolic";
+    if (volume_percent < 34)
+        return "audio-volume-low-symbolic";
+    if (volume_percent < 67)
+        return "audio-volume-medium-symbolic";
+    return "audio-volume-high-symbolic";
+}
+
+static void
+update_panel_volume_icon(ExtrasMenuPlugin *plugin, guint volume_percent, gboolean muted)
+{
+    if (plugin->panel_volume_icon == NULL)
+        return;
+
+    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_volume_icon),
+                                  volume_icon_name(volume_percent, muted),
+                                  GTK_ICON_SIZE_BUTTON);
+}
+
+/* With a battery: its level/charging icon. Without one (desktop, or
+ * UPower not running): a power icon, so the panel button never ends up
+ * with a gap where the battery would be. */
+static void
+update_panel_battery_icon(ExtrasMenuPlugin *plugin, gboolean present, guint percent,
+                          ExtrasMenuBatteryState state)
+{
+    if (plugin->panel_battery_icon == NULL)
+        return;
+
+    if (!present)
+    {
+        gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_battery_icon),
+                                      "system-shutdown-symbolic", GTK_ICON_SIZE_BUTTON);
+        return;
+    }
+
+    gchar *icon_name = extras_menu_battery_icon_name(percent, state);
+    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_battery_icon),
+                                  icon_name, GTK_ICON_SIZE_BUTTON);
+    g_free(icon_name);
+}
+
+/* Keeps the three icons in a row on a horizontal panel and in a column
+ * on a vertical one. */
+static void
+on_plugin_orientation_changed(XfcePanelPlugin *panel_plugin, GtkOrientation orientation,
+                              ExtrasMenuPlugin *plugin)
+{
+    (void) panel_plugin;
+
+    if (plugin->panel_icons_box != NULL)
+        gtk_orientable_set_orientation(GTK_ORIENTABLE(plugin->panel_icons_box), orientation);
+}
+
 /* Applies a network status (kind + IP) to the pill's label/icon.
  * Shared by on_network_status_changed() (the normal path) and the end
  * of construct() (to catch the case where the backend's first
@@ -174,6 +263,7 @@ on_network_status_changed(ExtrasMenuNetworkKind kind, const gchar *ip_address, g
     plugin->network_last_ip_address = ip_address != NULL ? g_strdup(ip_address) : NULL;
     plugin->network_has_status = TRUE;
 
+    update_panel_network_icon(plugin);
     apply_network_status(plugin, kind);
 }
 
@@ -189,6 +279,8 @@ on_wifi_enabled_changed(gboolean enabled, gpointer user_data)
 
     plugin->network_wifi_last_enabled = enabled;
     plugin->network_wifi_has_enabled_state = TRUE;
+
+    update_panel_network_icon(plugin);
 
     if (plugin->network_toggle == NULL)
         return;
@@ -938,7 +1030,10 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     /* Widgets are built in construct(), once the plugin has a panel to
      * attach to; nothing to do here yet. */
     plugin->toggle_button = NULL;
-    plugin->button_icon = NULL;
+    plugin->panel_icons_box = NULL;
+    plugin->panel_network_icon = NULL;
+    plugin->panel_volume_icon = NULL;
+    plugin->panel_battery_icon = NULL;
     plugin->popover = NULL;
     plugin->battery_label = NULL;
     plugin->battery_icon = NULL;
@@ -1061,19 +1156,14 @@ on_toggle_button_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
         position_dropdown_below_button(plugin);
         gtk_window_present(GTK_WINDOW(plugin->popover));
         gtk_window_set_keep_above(GTK_WINDOW(plugin->popover), TRUE);
-        gtk_image_set_from_icon_name(GTK_IMAGE(plugin->button_icon),
-                                      "pan-up-symbolic", GTK_ICON_SIZE_BUTTON);
     }
     else
     {
         gtk_widget_hide(plugin->popover);
-        gtk_image_set_from_icon_name(GTK_IMAGE(plugin->button_icon),
-                                      "pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
     }
 }
 
-/* Hides the dropdown and resets the toggle button + its arrow icon to
- * match. Shared by the focus-out handler below and by the quick-action
+/* Hides the dropdown and resets the toggle button to match. Shared by the focus-out handler below and by the quick-action
  * buttons (which close the dropdown before launching their program).
  * Takes a gpointer so it can double as an
  * ExtrasMenuQuickActionsCloseFunc. */
@@ -1094,8 +1184,6 @@ close_dropdown(gpointer user_data)
 
     gtk_widget_hide(plugin->popover);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(plugin->toggle_button), FALSE);
-    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->button_icon),
-                                  "pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
 }
 
 /* Since we're using a plain GtkWindow instead of a GtkPopover, we lose
@@ -1130,6 +1218,8 @@ on_audio_changed(guint volume_percent, gboolean muted, gpointer user_data)
 {
     ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
 
+    update_panel_volume_icon(plugin, volume_percent, muted);
+
     if (plugin->volume_scale == NULL)
         return;
 
@@ -1143,26 +1233,13 @@ on_audio_changed(guint volume_percent, gboolean muted, gpointer user_data)
     gtk_range_set_value(GTK_RANGE(plugin->volume_scale), (gdouble) volume_percent);
     plugin->updating_volume_from_backend = FALSE;
 
-    /* Swap the speaker icon to its muted variant whenever the sink is
-     * either explicitly muted or simply at 0% -- both look the same
-     * to the user, so both get the crossed-out icon. Otherwise scale
-     * the icon by level, matching what most desktop volume sliders do
-     * (low/medium/high), purely as a visual nicety. */
+    /* Muted or 0% gets the crossed-out speaker; otherwise the icon
+     * scales by level (low/medium/high) -- see volume_icon_name(). */
     if (plugin->volume_icon != NULL)
     {
-        const gchar *icon_name;
-
-        if (muted || volume_percent == 0)
-            icon_name = "audio-volume-muted-symbolic";
-        else if (volume_percent < 34)
-            icon_name = "audio-volume-low-symbolic";
-        else if (volume_percent < 67)
-            icon_name = "audio-volume-medium-symbolic";
-        else
-            icon_name = "audio-volume-high-symbolic";
-
         gtk_image_set_from_icon_name(GTK_IMAGE(plugin->volume_icon),
-                                      icon_name, GTK_ICON_SIZE_BUTTON);
+                                      volume_icon_name(volume_percent, muted),
+                                      GTK_ICON_SIZE_BUTTON);
     }
 }
 
@@ -1613,6 +1690,8 @@ on_battery_changed(gboolean present, guint percent, ExtrasMenuBatteryState state
 {
     ExtrasMenuPlugin *plugin = user_data;
 
+    update_panel_battery_icon(plugin, present, percent, state);
+
     if (plugin->battery_label == NULL || plugin->battery_icon == NULL)
         return;
 
@@ -1715,13 +1794,30 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 {
     ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(panel_plugin);
 
-    /* --- panel button (the "^" chevron trigger) --- */
+    /* --- panel button: three status icons (network, volume, battery
+     * or power) side by side. Starting icons are placeholders; the
+     * backends replace them as soon as they report in. The power icon
+     * is also what stays if no battery ever reports. --- */
     plugin->toggle_button = gtk_toggle_button_new();
     gtk_button_set_relief(GTK_BUTTON(plugin->toggle_button), GTK_RELIEF_NONE);
 
-    plugin->button_icon = gtk_image_new_from_icon_name("pan-down-symbolic",
-                                                         GTK_ICON_SIZE_BUTTON);
-    gtk_container_add(GTK_CONTAINER(plugin->toggle_button), plugin->button_icon);
+    plugin->panel_icons_box =
+        gtk_box_new(xfce_panel_plugin_get_orientation(panel_plugin), 6);
+
+    plugin->panel_network_icon =
+        gtk_image_new_from_icon_name("network-wireless-offline-symbolic", GTK_ICON_SIZE_BUTTON);
+    plugin->panel_volume_icon =
+        gtk_image_new_from_icon_name("audio-volume-high-symbolic", GTK_ICON_SIZE_BUTTON);
+    plugin->panel_battery_icon =
+        gtk_image_new_from_icon_name("system-shutdown-symbolic", GTK_ICON_SIZE_BUTTON);
+
+    gtk_box_pack_start(GTK_BOX(plugin->panel_icons_box), plugin->panel_network_icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(plugin->panel_icons_box), plugin->panel_volume_icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(plugin->panel_icons_box), plugin->panel_battery_icon, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(plugin->toggle_button), plugin->panel_icons_box);
+
+    g_signal_connect(panel_plugin, "orientation-changed",
+                      G_CALLBACK(on_plugin_orientation_changed), plugin);
 
     gtk_container_add(GTK_CONTAINER(panel_plugin), plugin->toggle_button);
     xfce_panel_plugin_add_action_widget(panel_plugin, plugin->toggle_button);

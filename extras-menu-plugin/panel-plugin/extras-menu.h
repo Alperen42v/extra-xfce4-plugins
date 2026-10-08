@@ -26,7 +26,18 @@ struct _ExtrasMenuPlugin
 
     /* panel button that toggles the popover */
     GtkWidget *toggle_button;
-    GtkWidget *button_icon;
+
+    /* What the panel button shows instead of a chevron: three status
+     * icons side by side -- Wi-Fi/network state, volume level, and
+     * battery level (or system-shutdown-symbolic on machines without a
+     * battery). panel_icons_box holds them so its orientation can follow
+     * the panel's (horizontal panel -> icons in a row, vertical panel ->
+     * in a column). Each icon is kept up to date by the same backend
+     * callbacks that drive the dropdown's own widgets. */
+    GtkWidget *panel_icons_box;
+    GtkWidget *panel_network_icon;
+    GtkWidget *panel_volume_icon;
+    GtkWidget *panel_battery_icon;
 
     /* the dropdown itself and its content, built once and reused.
      * Implemented as a plain always-on-top GtkWindow rather than a
