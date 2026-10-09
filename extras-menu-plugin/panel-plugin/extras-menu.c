@@ -2,7 +2,7 @@
 #include "popover.h"
 #include "preferences/preferences.h"
 #include "quick-actions.h"
-#include "network.h"
+#include "network/network.h"
 
 #include <gio/gio.h>
 

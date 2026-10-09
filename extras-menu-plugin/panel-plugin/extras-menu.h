@@ -8,7 +8,7 @@
 #include "battery.h"
 #include "bluetooth.h"
 #include "brightness.h"
-#include "network.h"
+#include "network/network.h"
 
 G_BEGIN_DECLS
 
