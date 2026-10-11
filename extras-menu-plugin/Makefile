@@ -19,7 +19,11 @@ SRC_DIR = panel-plugin
 BUILD_DIR = build
 
 SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC_DIR)/brightness.c \
-          $(SRC_DIR)/bluetooth.c $(SRC_DIR)/quick-actions.c $(SRC_DIR)/battery.c \
+          $(SRC_DIR)/quick-actions.c $(SRC_DIR)/battery.c \
+          $(SRC_DIR)/bluetooth/bluetooth.c \
+          $(SRC_DIR)/bluetooth/bluetooth-adapter.c \
+          $(SRC_DIR)/bluetooth/bluetooth-devices.c \
+          $(SRC_DIR)/bluetooth/bluetooth-connect.c \
           $(SRC_DIR)/network/network.c \
           $(SRC_DIR)/network/network-ap.c \
           $(SRC_DIR)/network/network-status.c \
@@ -41,7 +45,7 @@ all: $(TARGET)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-# $(dir $@) because some sources live in subfolders (preferences/, network/).
+# $(dir $@) because some sources live in subfolders (preferences/, network/, bluetooth/).
 # -MMD -MP writes .d files so that editing a header rebuilds everything
 # that includes it (struct layouts are shared between files here).
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)

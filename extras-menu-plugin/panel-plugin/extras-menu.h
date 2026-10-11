@@ -6,7 +6,7 @@
 
 #include "audio.h"
 #include "battery.h"
-#include "bluetooth.h"
+#include "bluetooth/bluetooth.h"
 #include "brightness.h"
 #include "network/network.h"
 
