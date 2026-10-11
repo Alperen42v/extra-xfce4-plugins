@@ -63,6 +63,31 @@ guint extras_menu_quick_actions_config_add_listener(ExtrasMenuQuickActionsChange
                                                      gpointer user_data);
 void extras_menu_quick_actions_config_remove_listener(guint listener_id);
 
+/* How the quick-action buttons are drawn.
+ *
+ *   SQUARE  the default: the GTK theme's own button shape (a square /
+ *           slightly rounded button, whatever the active theme does)
+ *   CIRCLE  GNOME-style round buttons
+ *
+ * Stored next to the button list (key "shape" in quick-actions.ini), so
+ * it survives saving the list, and saving the list never resets it. */
+typedef enum
+{
+    EXTRAS_MENU_QUICK_ACTION_SHAPE_SQUARE,
+    EXTRAS_MENU_QUICK_ACTION_SHAPE_CIRCLE
+} ExtrasMenuQuickActionShape;
+
+/* The saved shape; SQUARE if nothing has been saved or the file can't
+ * be read. */
+ExtrasMenuQuickActionShape extras_menu_quick_actions_config_get_shape(void);
+
+/* Saves the shape and, on success, calls every registered change
+ * listener (the same ones notified when the button list is saved), so
+ * the dropdown restyles its buttons right away. Does nothing if the
+ * shape is already the saved one. */
+gboolean extras_menu_quick_actions_config_set_shape(ExtrasMenuQuickActionShape shape,
+                                                     GError **error);
+
 /* Sets a GtkImage from a config icon string: a theme icon name, or an
  * image file path (scaled to `size`). Empty falls back to a generic
  * icon; an unreadable file shows the theme's "missing image" icon. */

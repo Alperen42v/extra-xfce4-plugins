@@ -50,6 +50,21 @@ static const gchar *EXTRAS_MENU_CSS =
     "  min-width: 0;"
     "  min-height: 0;"
     "}"
+    /* Circle variant: only applies while the quick-actions box carries
+     * the "extras-menu-quick-actions-circle" class (set by
+     * extras_menu_popover_set_quick_action_shape()). Matching on the
+     * parent's class means one switch restyles all the buttons, and a
+     * button created later is already correct. Content min size 16px
+     * plus 4px padding on each side = a 24x24 box (same footprint as
+     * the square buttons, so five of them still fit), and a 50% radius
+     * turns that into a true circle. Without the fixed size, an image
+     * file icon that isn't square would give an oval. */
+    ".extras-menu-quick-actions-circle .extras-menu-top-bar-button {"
+    "  border-radius: 50%;"
+    "  padding: 4px;"
+    "  min-width: 16px;"
+    "  min-height: 16px;"
+    "}"
     ".extras-menu-popover {"
     "  padding: 10px;"
     "  border-radius: 12px;"
@@ -278,6 +293,31 @@ extras_menu_top_bar_button_new(void)
     gtk_style_context_add_class(gtk_widget_get_style_context(button),
                                  "extras-menu-top-bar-button");
     return button;
+}
+
+void
+extras_menu_popover_set_quick_action_shape(GtkWidget *quick_actions_box,
+                                            ExtrasMenuQuickActionShape shape)
+{
+    if (quick_actions_box == NULL)
+        return;
+
+    GtkStyleContext *ctx = gtk_widget_get_style_context(quick_actions_box);
+
+    if (shape == EXTRAS_MENU_QUICK_ACTION_SHAPE_CIRCLE)
+    {
+        gtk_style_context_add_class(ctx, "extras-menu-quick-actions-circle");
+
+        /* Buttons are stretched to the top bar's height by default,
+         * which would squash a circle into an oval. Centering the box
+         * lets it shrink to the buttons' own (square) size. */
+        gtk_widget_set_valign(quick_actions_box, GTK_ALIGN_CENTER);
+    }
+    else
+    {
+        gtk_style_context_remove_class(ctx, "extras-menu-quick-actions-circle");
+        gtk_widget_set_valign(quick_actions_box, GTK_ALIGN_FILL);
+    }
 }
 
 /* Top status bar: a battery percentage badge on the left, a row of

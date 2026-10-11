@@ -3,6 +3,8 @@
 
 #include <gtk/gtk.h>
 
+#include "preferences/quick-actions-config.h"
+
 G_BEGIN_DECLS
 
 /*
@@ -92,6 +94,14 @@ GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
  * caller puts its own icon inside. This is how quick-actions.c makes
  * the user-configured quick-action buttons match the rest of the bar. */
 GtkWidget *extras_menu_top_bar_button_new(void);
+
+/* Restyles every quick-action button in quick_actions_box (the box
+ * handed out by extras_menu_popover_content_new()) as squares or
+ * circles. Works on the box rather than on the buttons themselves, so
+ * it also covers buttons that are created later, and it is safe to
+ * call as often as you like. */
+void extras_menu_popover_set_quick_action_shape(GtkWidget *quick_actions_box,
+                                                 ExtrasMenuQuickActionShape shape);
 
 G_END_DECLS
 

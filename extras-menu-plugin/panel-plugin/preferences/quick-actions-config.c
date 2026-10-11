@@ -4,6 +4,7 @@
 
 #define CONFIG_GROUP     "quick-actions"
 #define FALLBACK_ICON    "applications-other-symbolic"
+#define SHAPE_KEY        "shape"
 
 /* --- single action -------------------------------------------------------- */
 
@@ -132,6 +133,37 @@ extras_menu_quick_actions_config_load(void)
     return actions;
 }
 
+/* --- button shape --------------------------------------------------------- */
+
+static const gchar *
+shape_to_string(ExtrasMenuQuickActionShape shape)
+{
+    return shape == EXTRAS_MENU_QUICK_ACTION_SHAPE_CIRCLE ? "circle" : "square";
+}
+
+ExtrasMenuQuickActionShape
+extras_menu_quick_actions_config_get_shape(void)
+{
+    ExtrasMenuQuickActionShape shape = EXTRAS_MENU_QUICK_ACTION_SHAPE_SQUARE;
+    gchar *path = config_file_path();
+    GKeyFile *file = g_key_file_new();
+
+    if (g_key_file_load_from_file(file, path, G_KEY_FILE_NONE, NULL))
+    {
+        gchar *value = g_key_file_get_string(file, CONFIG_GROUP, SHAPE_KEY, NULL);
+
+        /* Anything other than "circle" (missing, misspelt) is the default. */
+        if (g_strcmp0(value, "circle") == 0)
+            shape = EXTRAS_MENU_QUICK_ACTION_SHAPE_CIRCLE;
+
+        g_free(value);
+    }
+
+    g_key_file_free(file);
+    g_free(path);
+    return shape;
+}
+
 /* --- change listeners ----------------------------------------------------- */
 
 typedef struct
@@ -208,6 +240,11 @@ extras_menu_quick_actions_config_save(const GPtrArray *actions, GError **error)
 
     g_key_file_set_integer(file, CONFIG_GROUP, "count", (gint) count);
 
+    /* This file is rebuilt from scratch on every save, so the shape
+     * (which the button list knows nothing about) is carried over. */
+    g_key_file_set_string(file, CONFIG_GROUP, SHAPE_KEY,
+                          shape_to_string(extras_menu_quick_actions_config_get_shape()));
+
     for (guint i = 0; i < count; i++)
     {
         const ExtrasMenuQuickActionConfig *action = g_ptr_array_index((GPtrArray *) actions, i);
@@ -221,6 +258,37 @@ extras_menu_quick_actions_config_save(const GPtrArray *actions, GError **error)
     }
 
     gchar *path = config_file_path();
+    gchar *dir = g_path_get_dirname(path);
+    g_mkdir_with_parents(dir, 0700);
+
+    gboolean ok = g_key_file_save_to_file(file, path, error);
+
+    g_free(dir);
+    g_free(path);
+    g_key_file_free(file);
+
+    if (ok)
+        notify_listeners();
+
+    return ok;
+}
+
+gboolean
+extras_menu_quick_actions_config_set_shape(ExtrasMenuQuickActionShape shape, GError **error)
+{
+    if (extras_menu_quick_actions_config_get_shape() == shape)
+        return TRUE;
+
+    gchar *path = config_file_path();
+    GKeyFile *file = g_key_file_new();
+
+    /* Start from what's on disk so the button list is kept as it is; a
+     * missing file just means we start empty (load() then still treats
+     * the list as "not configured yet" and uses the defaults, because
+     * there is no "count"). */
+    g_key_file_load_from_file(file, path, G_KEY_FILE_NONE, NULL);
+    g_key_file_set_string(file, CONFIG_GROUP, SHAPE_KEY, shape_to_string(shape));
+
     gchar *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0700);
 

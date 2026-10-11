@@ -1,6 +1,7 @@
 #include "extras-menu.h"
 #include "popover.h"
 #include "preferences/preferences.h"
+#include "preferences/quick-actions-config.h"
 #include "quick-actions.h"
 #include "network/network.h"
 
@@ -1147,6 +1148,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->battery_icon = NULL;
     plugin->battery = NULL;
     plugin->quick_actions_box = NULL;
+    plugin->quick_actions_config_listener = 0;
     plugin->volume_scale = NULL;
     plugin->volume_icon = NULL;
     plugin->audio = NULL;
@@ -1881,6 +1883,18 @@ on_battery_changed(gboolean present, guint percent, ExtrasMenuBatteryState state
     gtk_widget_show(badge);
 }
 
+/* The quick-actions config was saved (button list or shape): make the
+ * buttons' shape match the saved setting. Cheap and idempotent, so it
+ * doesn't matter that it also runs for plain list edits. */
+static void
+on_quick_actions_config_changed(gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = user_data;
+
+    extras_menu_popover_set_quick_action_shape(plugin->quick_actions_box,
+                                                extras_menu_quick_actions_config_get_shape());
+}
+
 /* Fired when the user picks "Properties..." from the plugin's
  * right-click panel menu (enabled via
  * xfce_panel_plugin_menu_show_configure() in construct() below). */
@@ -1895,6 +1909,12 @@ static void
 on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
     (void) panel_plugin;
+
+    if (plugin->quick_actions_config_listener != 0)
+    {
+        extras_menu_quick_actions_config_remove_listener(plugin->quick_actions_config_listener);
+        plugin->quick_actions_config_listener = 0;
+    }
 
     if (plugin->battery != NULL)
     {
@@ -2054,6 +2074,12 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 
     extras_menu_quick_actions_attach(plugin->quick_actions_box,
                                       close_dropdown, plugin);
+
+    /* Button shape (square/circle): apply the saved one now, and again
+     * whenever the preferences editor saves. */
+    on_quick_actions_config_changed(plugin);
+    plugin->quick_actions_config_listener =
+        extras_menu_quick_actions_config_add_listener(on_quick_actions_config_changed, plugin);
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives

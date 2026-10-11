@@ -58,6 +58,11 @@ struct _ExtrasMenuPlugin
     GtkWidget *battery_icon;
     GtkWidget *quick_actions_box;
 
+    /* Id of this instance's listener on the quick-actions config (0 =
+     * none): it re-applies the saved button shape (square/circle)
+     * whenever the preferences editor saves something. */
+    guint quick_actions_config_listener;
+
     /* UPower battery backend driving the badge above. The badge is
      * hidden until the backend reports a battery is present, so
      * machines without one (desktops) never show it. */

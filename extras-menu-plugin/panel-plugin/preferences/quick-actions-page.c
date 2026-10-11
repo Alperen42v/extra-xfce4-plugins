@@ -330,6 +330,54 @@ on_reset_clicked(GtkButton *button, gpointer user_data)
     gtk_widget_show(dialog);
 }
 
+/* --- button shape -------------------------------------------------------------- */
+
+/* Saved at once rather than debounced: it's a single click, not a burst
+ * of typing. Only the circle radio is watched -- picking one radio
+ * un-picks the other, so each choice would otherwise fire twice. */
+static void
+on_shape_toggled(GtkToggleButton *circle_radio, gpointer user_data)
+{
+    (void) user_data;
+    GError *error = NULL;
+
+    ExtrasMenuQuickActionShape shape = gtk_toggle_button_get_active(circle_radio)
+        ? EXTRAS_MENU_QUICK_ACTION_SHAPE_CIRCLE
+        : EXTRAS_MENU_QUICK_ACTION_SHAPE_SQUARE;
+
+    if (!extras_menu_quick_actions_config_set_shape(shape, &error))
+    {
+        g_warning("extras-menu: couldn't save the button shape: %s",
+                  error != NULL ? error->message : "unknown error");
+        g_clear_error(&error);
+    }
+}
+
+static GtkWidget *
+make_shape_row(void)
+{
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+
+    GtkWidget *label = gtk_label_new("Button shape:");
+
+    GtkWidget *square_radio = gtk_radio_button_new_with_label(NULL, "Square (theme default)");
+    GtkWidget *circle_radio = gtk_radio_button_new_with_label_from_widget(
+        GTK_RADIO_BUTTON(square_radio), "Circle (GNOME style)");
+
+    /* Set the current choice before connecting, so showing the page
+     * doesn't count as a change. */
+    if (extras_menu_quick_actions_config_get_shape() == EXTRAS_MENU_QUICK_ACTION_SHAPE_CIRCLE)
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(circle_radio), TRUE);
+
+    g_signal_connect(circle_radio, "toggled", G_CALLBACK(on_shape_toggled), NULL);
+
+    gtk_box_pack_start(GTK_BOX(row), label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), square_radio, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), circle_radio, FALSE, FALSE, 0);
+
+    return row;
+}
+
 /* --- building the rows -------------------------------------------------------- */
 
 static GtkWidget *
@@ -482,6 +530,8 @@ extras_menu_quick_actions_page_new(void)
     gtk_label_set_max_width_chars(GTK_LABEL(description), 60);
     gtk_style_context_add_class(gtk_widget_get_style_context(description), "dim-label");
     gtk_box_pack_start(GTK_BOX(page), description, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(page), make_shape_row(), FALSE, FALSE, 0);
 
     /* Rows live in a scrolled window so five of them can't make the
      * dialog taller than a small screen. */
