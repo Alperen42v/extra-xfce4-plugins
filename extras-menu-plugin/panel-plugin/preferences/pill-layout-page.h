@@ -12,7 +12,9 @@ G_BEGIN_DECLS
  * button takes it out of the menu; "Add pill..." opens a separate window
  * listing the pills that aren't in the menu, to put them back (see
  * pill-layout-config.h for the catalog); "Reset to defaults" shows every
- * pill again in the shipped order.
+ * pill again in the shipped order. A "Pill shape" choice above the grid
+ * switches all the pills between the shipped soft corners and GNOME-style
+ * round ends; it applies to every pill and isn't touched by the reset.
  *
  * Every change is saved at once (see pill-layout-config.h) and the
  * dropdown rearranges itself immediately. The page owns all its state;

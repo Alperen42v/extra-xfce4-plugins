@@ -176,6 +176,54 @@ on_reset_clicked(GtkButton *button, gpointer user_data)
     save_layout(st);
 }
 
+/* --- pill shape ------------------------------------------------------------------- */
+
+/* Saved at once rather than debounced: it's a single click. Only the
+ * round radio is watched -- picking one radio un-picks the other, so
+ * each choice would otherwise fire twice. */
+static void
+on_shape_toggled(GtkToggleButton *round_radio, gpointer user_data)
+{
+    (void) user_data;
+    GError *error = NULL;
+
+    ExtrasMenuPillShape shape = gtk_toggle_button_get_active(round_radio)
+        ? EXTRAS_MENU_PILL_SHAPE_ROUND
+        : EXTRAS_MENU_PILL_SHAPE_DEFAULT;
+
+    if (!extras_menu_pill_layout_set_shape(shape, &error))
+    {
+        g_warning("extras-menu: couldn't save the pill shape: %s",
+                  error != NULL ? error->message : "unknown error");
+        g_clear_error(&error);
+    }
+}
+
+static GtkWidget *
+make_shape_row(void)
+{
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+
+    GtkWidget *label = gtk_label_new("Pill shape:");
+
+    GtkWidget *default_radio = gtk_radio_button_new_with_label(NULL, "Default (soft corners)");
+    GtkWidget *round_radio = gtk_radio_button_new_with_label_from_widget(
+        GTK_RADIO_BUTTON(default_radio), "Round ends (GNOME style)");
+
+    /* Set the current choice before connecting, so showing the page
+     * doesn't count as a change. */
+    if (extras_menu_pill_layout_get_shape() == EXTRAS_MENU_PILL_SHAPE_ROUND)
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(round_radio), TRUE);
+
+    g_signal_connect(round_radio, "toggled", G_CALLBACK(on_shape_toggled), NULL);
+
+    gtk_box_pack_start(GTK_BOX(row), label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), default_radio, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), round_radio, FALSE, FALSE, 0);
+
+    return row;
+}
+
 /* --- the "add a pill" window ------------------------------------------------------ */
 
 typedef struct
@@ -512,6 +560,8 @@ extras_menu_pill_layout_page_new(void)
     gtk_label_set_max_width_chars(GTK_LABEL(description), 60);
     gtk_style_context_add_class(gtk_widget_get_style_context(description), "dim-label");
     gtk_box_pack_start(GTK_BOX(page), description, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(page), make_shape_row(), FALSE, FALSE, 0);
 
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 8);

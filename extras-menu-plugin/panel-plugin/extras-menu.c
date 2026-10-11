@@ -1897,9 +1897,11 @@ on_quick_actions_config_changed(gpointer user_data)
                                                 extras_menu_quick_actions_config_get_shape());
 }
 
-/* The saved pill layout changed: show, hide and move the dropdown's
- * pills to match. (The dropdown is built in the saved layout to begin
- * with, so this is only for changes made afterwards.) */
+/* The saved pill layout or pill shape changed: show, hide, move and
+ * restyle the dropdown's pills to match. (The dropdown is built in the
+ * saved layout and shape to begin with, so this is only for changes made
+ * afterwards. Both live in the same config file and share one listener;
+ * applying either again when only the other changed is harmless.) */
 static void
 on_pill_layout_changed(gpointer user_data)
 {
@@ -1909,7 +1911,9 @@ on_pill_layout_changed(gpointer user_data)
         return;
 
     GPtrArray *layout = extras_menu_pill_layout_load();
-    extras_menu_popover_set_pill_order(gtk_bin_get_child(GTK_BIN(plugin->popover)), layout);
+    GtkWidget *content = gtk_bin_get_child(GTK_BIN(plugin->popover));
+    extras_menu_popover_set_pill_order(content, layout);
+    extras_menu_popover_set_pill_shape(content, extras_menu_pill_layout_get_shape());
 
     /* A list can only be opened with the chevron of its own pill. If
      * that pill was just removed while its list was open, close the list

@@ -50,6 +50,30 @@ const ExtrasMenuPillInfo *extras_menu_pill_catalog_get(guint index);
  * function: release it with g_ptr_array_unref() and nothing else.
  */
 
+/* How the pills are drawn.
+ *
+ *   DEFAULT  the shipped look: soft, rounded-square pills
+ *   ROUND    GNOME style: the ends are fully rounded, half a circle on
+ *            each side, like a capsule
+ *
+ * Stored next to the pill list (key "shape" in pill-layout.ini), so it
+ * survives saving the list, and saving the list never resets it. */
+typedef enum
+{
+    EXTRAS_MENU_PILL_SHAPE_DEFAULT,
+    EXTRAS_MENU_PILL_SHAPE_ROUND
+} ExtrasMenuPillShape;
+
+/* The saved shape; DEFAULT if nothing has been saved or the file can't
+ * be read. */
+ExtrasMenuPillShape extras_menu_pill_layout_get_shape(void);
+
+/* Saves the shape and, on success, calls every registered listener (the
+ * same ones notified when the pill list is saved), so the dropdown
+ * restyles its pills right away. Does nothing if the shape is already
+ * the saved one. Leaves the saved pill list exactly as it is. */
+gboolean extras_menu_pill_layout_set_shape(ExtrasMenuPillShape shape, GError **error);
+
 /* Every pill, in the order the plugin shipped with (Wi-Fi, quality,
  * Bluetooth, balanced, dark mode, aeroplane mode). */
 GPtrArray *extras_menu_pill_layout_defaults(void);

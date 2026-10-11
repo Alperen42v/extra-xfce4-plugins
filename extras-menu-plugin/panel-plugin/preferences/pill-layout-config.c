@@ -4,6 +4,7 @@
 
 #define CONFIG_GROUP "pill-layout"
 #define ORDER_KEY    "order"
+#define SHAPE_KEY    "shape"
 
 /* The catalog of every pill, in default order. Adding a pill = one line
  * here (plus its id in the header, EXTRAS_MENU_PILL_COUNT, and building
@@ -136,6 +137,37 @@ extras_menu_pill_layout_load(void)
     return layout;
 }
 
+/* --- pill shape ---------------------------------------------------------------- */
+
+static const gchar *
+shape_to_string(ExtrasMenuPillShape shape)
+{
+    return shape == EXTRAS_MENU_PILL_SHAPE_ROUND ? "round" : "default";
+}
+
+ExtrasMenuPillShape
+extras_menu_pill_layout_get_shape(void)
+{
+    ExtrasMenuPillShape shape = EXTRAS_MENU_PILL_SHAPE_DEFAULT;
+    gchar *path = config_file_path();
+    GKeyFile *file = g_key_file_new();
+
+    if (g_key_file_load_from_file(file, path, G_KEY_FILE_NONE, NULL))
+    {
+        gchar *value = g_key_file_get_string(file, CONFIG_GROUP, SHAPE_KEY, NULL);
+
+        /* Anything other than "round" (missing, misspelt) is the default. */
+        if (g_strcmp0(value, "round") == 0)
+            shape = EXTRAS_MENU_PILL_SHAPE_ROUND;
+
+        g_free(value);
+    }
+
+    g_key_file_free(file);
+    g_free(path);
+    return shape;
+}
+
 /* --- change listeners --------------------------------------------------------- */
 
 typedef struct
@@ -218,7 +250,43 @@ extras_menu_pill_layout_save(const GPtrArray *layout, GError **error)
     GKeyFile *file = g_key_file_new();
     g_key_file_set_string_list(file, CONFIG_GROUP, ORDER_KEY, ids, count);
 
+    /* This file is rebuilt from scratch on every save, so the shape
+     * (which the pill list knows nothing about) is carried over. */
+    g_key_file_set_string(file, CONFIG_GROUP, SHAPE_KEY,
+                          shape_to_string(extras_menu_pill_layout_get_shape()));
+
     gchar *path = config_file_path();
+    gchar *dir = g_path_get_dirname(path);
+    g_mkdir_with_parents(dir, 0700);
+
+    gboolean ok = g_key_file_save_to_file(file, path, error);
+
+    g_free(dir);
+    g_free(path);
+    g_key_file_free(file);
+
+    if (ok)
+        notify_listeners();
+
+    return ok;
+}
+
+gboolean
+extras_menu_pill_layout_set_shape(ExtrasMenuPillShape shape, GError **error)
+{
+    if (extras_menu_pill_layout_get_shape() == shape)
+        return TRUE;
+
+    gchar *path = config_file_path();
+    GKeyFile *file = g_key_file_new();
+
+    /* Start from what's on disk so the pill list is kept as it is (an
+     * empty one included); a missing file just means we start empty,
+     * and load() then still shows every pill, because there is no
+     * "order" key. */
+    g_key_file_load_from_file(file, path, G_KEY_FILE_NONE, NULL);
+    g_key_file_set_string(file, CONFIG_GROUP, SHAPE_KEY, shape_to_string(shape));
+
     gchar *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0700);
 

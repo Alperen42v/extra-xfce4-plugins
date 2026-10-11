@@ -116,6 +116,38 @@ static const gchar *EXTRAS_MENU_CSS =
     "  padding: 10px 10px;"
     "  min-height: 28px;"
     "  min-width: 0;"
+    "}"
+    /* Round (GNOME-style) variant: only applies while the pill grid
+     * carries the "extras-menu-pills-round" class (set by
+     * extras_menu_popover_set_pill_shape()). A pill is about 50px tall,
+     * so a 25px radius makes each end exactly half a circle -- a
+     * capsule. A radius larger than half the height is harmless (it is
+     * scaled down to fit), a smaller one would leave visibly flat
+     * sides, so this errs on the big side. The split pills (Wi-Fi,
+     * Bluetooth) round only the outer end of each half and stay square
+     * where the two meet at the divider. The side padding grows a
+     * little so the icon and text don't crowd the curve. */
+    ".extras-menu-pills-round .extras-menu-pill,"
+    ".extras-menu-pills-round .extras-menu-pill-wide {"
+    "  border-radius: 25px;"
+    "  padding: 10px 18px;"
+    "}"
+    ".extras-menu-pills-round .extras-menu-split-pill {"
+    "  border-radius: 25px;"
+    "}"
+    ".extras-menu-pills-round .extras-menu-split-pill-main {"
+    "  border-top-left-radius: 25px;"
+    "  border-bottom-left-radius: 25px;"
+    "  border-top-right-radius: 0;"
+    "  border-bottom-right-radius: 0;"
+    "  padding: 10px 14px 10px 18px;"
+    "}"
+    ".extras-menu-pills-round .extras-menu-split-pill-expand {"
+    "  border-top-right-radius: 25px;"
+    "  border-bottom-right-radius: 25px;"
+    "  border-top-left-radius: 0;"
+    "  border-bottom-left-radius: 0;"
+    "  padding: 10px 14px 10px 10px;"
     "}";
 
 static void
@@ -499,6 +531,31 @@ extras_menu_apply_pill_order(GtkWidget *grid, const GPtrArray *layout)
     gtk_widget_set_visible(grid, layout->len > 0);
 }
 
+/* Turns the capsule look on or off by toggling one class on the grid;
+ * the CSS above matches the pills through it, so every pill (including
+ * the halves of the split ones) follows with no per-widget work. */
+static void
+extras_menu_apply_pill_shape(GtkWidget *grid, ExtrasMenuPillShape shape)
+{
+    GtkStyleContext *ctx = gtk_widget_get_style_context(grid);
+
+    if (shape == EXTRAS_MENU_PILL_SHAPE_ROUND)
+        gtk_style_context_add_class(ctx, "extras-menu-pills-round");
+    else
+        gtk_style_context_remove_class(ctx, "extras-menu-pills-round");
+}
+
+void
+extras_menu_popover_set_pill_shape(GtkWidget *content, ExtrasMenuPillShape shape)
+{
+    if (content == NULL)
+        return;
+
+    GtkWidget *grid = g_object_get_data(G_OBJECT(content), PILL_GRID_KEY);
+    if (grid != NULL)
+        extras_menu_apply_pill_shape(grid, shape);
+}
+
 void
 extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *layout)
 {
@@ -651,6 +708,8 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
     GPtrArray *pill_layout = extras_menu_pill_layout_load();
     extras_menu_apply_pill_order(grid, pill_layout);
     g_ptr_array_unref(pill_layout);
+
+    extras_menu_apply_pill_shape(grid, extras_menu_pill_layout_get_shape());
 
     gtk_box_pack_start(GTK_BOX(root), grid, FALSE, FALSE, 0);
 

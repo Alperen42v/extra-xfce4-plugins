@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 
 #include "preferences/quick-actions-config.h"
+#include "preferences/pill-layout-config.h"
 
 G_BEGIN_DECLS
 
@@ -105,6 +106,14 @@ GtkWidget *extras_menu_top_bar_button_new(void);
  * even for a hidden pill. The content already starts out in the saved
  * layout; this is for applying a later change. */
 void extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *layout);
+
+/* Restyles the pill grid's big buttons: the shipped soft rounded squares
+ * or GNOME-style capsules with fully rounded ends. `content` is the
+ * widget returned by extras_menu_popover_content_new(). Works on the
+ * grid rather than on each pill, so it is safe to call as often as you
+ * like. The content already starts out in the saved shape; this is for
+ * applying a later change. */
+void extras_menu_popover_set_pill_shape(GtkWidget *content, ExtrasMenuPillShape shape);
 
 /* Restyles every quick-action button in quick_actions_box (the box
  * handed out by extras_menu_popover_content_new()) as squares or
