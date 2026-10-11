@@ -3,6 +3,7 @@
 #include "preferences/preferences.h"
 #include "preferences/quick-actions-config.h"
 #include "preferences/pill-layout-config.h"
+#include "preferences/slider-layout-config.h"
 #include "quick-actions.h"
 #include "network/network.h"
 
@@ -1151,6 +1152,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->quick_actions_box = NULL;
     plugin->quick_actions_config_listener = 0;
     plugin->pill_layout_listener = 0;
+    plugin->slider_layout_listener = 0;
     plugin->volume_scale = NULL;
     plugin->volume_icon = NULL;
     plugin->audio = NULL;
@@ -1927,6 +1929,22 @@ on_pill_layout_changed(gpointer user_data)
     g_ptr_array_unref(layout);
 }
 
+/* The saved slider layout changed: reorder, show and hide the volume
+ * and brightness rows to match. (The dropdown is built in the saved
+ * layout to begin with, so this is only for changes made afterwards.) */
+static void
+on_slider_layout_changed(gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = user_data;
+
+    if (plugin->popover == NULL)
+        return;
+
+    GPtrArray *layout = extras_menu_slider_layout_load();
+    extras_menu_popover_set_slider_order(gtk_bin_get_child(GTK_BIN(plugin->popover)), layout);
+    g_ptr_array_unref(layout);
+}
+
 /* Fired when the user picks "Properties..." from the plugin's
  * right-click panel menu (enabled via
  * xfce_panel_plugin_menu_show_configure() in construct() below). */
@@ -1941,6 +1959,12 @@ static void
 on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
     (void) panel_plugin;
+
+    if (plugin->slider_layout_listener != 0)
+    {
+        extras_menu_slider_layout_remove_listener(plugin->slider_layout_listener);
+        plugin->slider_layout_listener = 0;
+    }
 
     if (plugin->pill_layout_listener != 0)
     {
@@ -2123,6 +2147,11 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
      * layout; this keeps it in step with later changes. */
     plugin->pill_layout_listener =
         extras_menu_pill_layout_add_listener(on_pill_layout_changed, plugin);
+
+    /* Slider rows: likewise built in the saved layout, kept in step with
+     * later changes. */
+    plugin->slider_layout_listener =
+        extras_menu_slider_layout_add_listener(on_slider_layout_changed, plugin);
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives

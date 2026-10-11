@@ -1,11 +1,18 @@
 #include "popover.h"
 #include "preferences/pill-layout-config.h"
+#include "preferences/slider-layout-config.h"
 
 /* Every pill carries its id (an EXTRAS_MENU_PILL_* string) under this
  * key, and the root content widget carries its pill grid under the
  * other one, so a layout can be applied without any extra bookkeeping. */
 #define PILL_ID_KEY   "extras-menu-pill-id"
 #define PILL_GRID_KEY "extras-menu-pill-grid"
+
+/* The same two ideas for the slider rows: each row carries its id
+ * (an EXTRAS_MENU_SLIDER_* string), and the root content widget carries
+ * the box that holds the rows. */
+#define SLIDER_ID_KEY  "extras-menu-slider-id"
+#define SLIDER_BOX_KEY "extras-menu-slider-box"
 
 /*
  * All shape/spacing styling lives here. Colors are intentionally left
@@ -531,6 +538,66 @@ extras_menu_apply_pill_order(GtkWidget *grid, const GPtrArray *layout)
     gtk_widget_set_visible(grid, layout->len > 0);
 }
 
+/* Applies a layout to the slider rows: the sliders in the layout are
+ * shown, top to bottom in layout order; the ones not in it are hidden
+ * (they keep existing and keep following their backends, they just
+ * have no row on screen). Rows are reordered with
+ * gtk_box_reorder_child(), never removed and re-added, so the scale
+ * widgets the plugin holds on to stay valid. Like the pills, the rows
+ * have no_show_all set, so the gtk_widget_show_all() on the whole
+ * dropdown can't bring a hidden one back. */
+static void
+extras_menu_apply_slider_order(GtkWidget *box, const GPtrArray *layout)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(box));
+
+    /* Shown rows first, in layout order. Going through the layout from
+     * the top and putting each row at its final index means every
+     * placement leaves the ones before it alone. */
+    for (guint i = 0; i < layout->len; i++)
+    {
+        const ExtrasMenuSliderInfo *slider = g_ptr_array_index(layout, i);
+
+        for (GList *l = children; l != NULL; l = l->next)
+        {
+            const gchar *id = g_object_get_data(G_OBJECT(l->data), SLIDER_ID_KEY);
+
+            if (g_strcmp0(id, slider->id) == 0)
+            {
+                gtk_box_reorder_child(GTK_BOX(box), GTK_WIDGET(l->data), (gint) i);
+                gtk_widget_show(GTK_WIDGET(l->data));
+                break;
+            }
+        }
+    }
+
+    /* Then hide whatever the layout doesn't mention. */
+    for (GList *l = children; l != NULL; l = l->next)
+    {
+        const gchar *id = g_object_get_data(G_OBJECT(l->data), SLIDER_ID_KEY);
+
+        if (!extras_menu_slider_layout_contains(layout, id))
+            gtk_widget_hide(GTK_WIDGET(l->data));
+    }
+
+    g_list_free(children);
+
+    /* With no sliders at all the empty box would still cost one gap of
+     * spacing in the dropdown, so hide it as well. */
+    gtk_widget_set_visible(box, layout->len > 0);
+}
+
+void
+extras_menu_popover_set_slider_order(GtkWidget *content, const GPtrArray *layout)
+{
+    if (content == NULL)
+        return;
+
+    GtkWidget *box = g_object_get_data(G_OBJECT(content), SLIDER_BOX_KEY);
+    if (box != NULL)
+        extras_menu_apply_slider_order(box, layout);
+}
+
 /* Turns the capsule look on or off by toggling one class on the grid;
  * the CSS above matches the pills through it, so every pill (including
  * the halves of the split ones) follows with no per-widget work. */
@@ -592,24 +659,60 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
                         extras_menu_make_top_bar(battery_label, battery_icon, quick_actions_box),
                         FALSE, FALSE, 0);
 
-    /* --- volume slider row --- */
+    /* --- slider rows (volume, brightness) ---
+     * Which of them the menu shows, and in which order, is a user
+     * setting, so they live in a box of their own: the saved layout
+     * reorders and hides the rows inside it without having to know what
+     * else is in `root`. The box keeps the 8px gap the rows had when
+     * they sat directly in `root`. */
+    GtkWidget *sliders_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_box_pack_start(GTK_BOX(root), sliders_box, FALSE, FALSE, 0);
+
     GtkWidget *vol_scale = NULL;
     GtkWidget *vol_icon = NULL;
-    gtk_box_pack_start(GTK_BOX(root),
-                        extras_menu_make_slider_row("audio-volume-high-symbolic", &vol_scale, &vol_icon),
-                        FALSE, FALSE, 0);
+    GtkWidget *vol_row = extras_menu_make_slider_row("audio-volume-high-symbolic",
+                                                      &vol_scale, &vol_icon);
     if (volume_scale != NULL)
         *volume_scale = vol_scale;
     if (volume_icon != NULL)
         *volume_icon = vol_icon;
 
-    /* --- brightness slider row, directly below volume --- */
     GtkWidget *bright_scale = NULL;
-    gtk_box_pack_start(GTK_BOX(root),
-                        extras_menu_make_slider_row("display-brightness-symbolic", &bright_scale, NULL),
-                        FALSE, FALSE, 0);
+    GtkWidget *bright_row = extras_menu_make_slider_row("display-brightness-symbolic",
+                                                         &bright_scale, NULL);
     if (brightness_scale != NULL)
         *brightness_scale = bright_scale;
+
+    const struct
+    {
+        GtkWidget *widget;
+        const gchar *id;
+    } slider_rows[] = {
+        { vol_row,    EXTRAS_MENU_SLIDER_VOLUME     },
+        { bright_row, EXTRAS_MENU_SLIDER_BRIGHTNESS },
+    };
+
+    for (guint i = 0; i < G_N_ELEMENTS(slider_rows); i++)
+    {
+        GtkWidget *slider_row = slider_rows[i].widget;
+
+        g_object_set_data(G_OBJECT(slider_row), SLIDER_ID_KEY, (gpointer) slider_rows[i].id);
+        gtk_box_pack_start(GTK_BOX(sliders_box), slider_row, FALSE, FALSE, 0);
+
+        /* Same trick as the pills: show the row's insides now, once,
+         * so that showing the row later only needs gtk_widget_show()
+         * on the row, and no_show_all makes the show_all() at the end
+         * of this function leave the row's visibility alone. */
+        gtk_widget_show_all(slider_row);
+        gtk_widget_set_no_show_all(slider_row, TRUE);
+    }
+
+    g_object_set_data(G_OBJECT(root), SLIDER_BOX_KEY, sliders_box);
+    gtk_widget_set_no_show_all(sliders_box, TRUE);
+
+    GPtrArray *slider_layout = extras_menu_slider_layout_load();
+    extras_menu_apply_slider_order(sliders_box, slider_layout);
+    g_ptr_array_unref(slider_layout);
 
     /* --- 2x3 pill grid, mirroring the mockup layout --- */
     GtkWidget *grid = gtk_grid_new();

@@ -34,7 +34,9 @@ SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC
           $(SRC_DIR)/preferences/quick-actions-config.c \
           $(SRC_DIR)/preferences/quick-actions-page.c \
           $(SRC_DIR)/preferences/pill-layout-config.c \
-          $(SRC_DIR)/preferences/pill-layout-page.c
+          $(SRC_DIR)/preferences/pill-layout-page.c \
+          $(SRC_DIR)/preferences/slider-layout-config.c \
+          $(SRC_DIR)/preferences/slider-layout-page.c
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
 TARGET = $(BUILD_DIR)/lib$(PLUGIN_NAME).so

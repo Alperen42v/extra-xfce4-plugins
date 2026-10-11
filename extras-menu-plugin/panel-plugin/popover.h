@@ -107,6 +107,17 @@ GtkWidget *extras_menu_top_bar_button_new(void);
  * layout; this is for applying a later change. */
 void extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *layout);
 
+/* Applies `layout` to the slider rows (volume, brightness): a GPtrArray
+ * of const ExtrasMenuSliderInfo* in top-to-bottom order (see
+ * preferences/slider-layout-config.h). Sliders in the layout are shown
+ * in that order; sliders not in it are hidden. `content` is the widget
+ * returned by extras_menu_popover_content_new(). The rows are only
+ * moved and shown/hidden, never rebuilt, so the volume_scale /
+ * brightness_scale handles the caller got stay valid and keep following
+ * their backends even while hidden. The content already starts out in
+ * the saved layout; this is for applying a later change. */
+void extras_menu_popover_set_slider_order(GtkWidget *content, const GPtrArray *layout);
+
 /* Restyles the pill grid's big buttons: the shipped soft rounded squares
  * or GNOME-style capsules with fully rounded ends. `content` is the
  * widget returned by extras_menu_popover_content_new(). Works on the
