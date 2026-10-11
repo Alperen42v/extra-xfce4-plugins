@@ -365,11 +365,12 @@ on_network_toggle_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
 }
 
 /* Fired when the small chevron button on the network pill is clicked.
- * Behavior depends on the current connection kind: in Wi-Fi mode,
- * toggles the network list revealer open/closed; in Ethernet mode (or
- * no connection), there's no list to show, so a small info dialog with
- * the IP address is shown instead (Ethernet has nothing to "choose"
- * the way Wi-Fi networks do). */
+ * An open list is always closed first. Otherwise: with Ethernet as the
+ * active connection, a small info dialog with the IP address is shown
+ * (Ethernet has nothing to "choose" the way Wi-Fi networks do); with
+ * the Wi-Fi radio off, a short dialog says so; in every other case --
+ * connected to Wi-Fi *or not connected at all* -- the Wi-Fi list is
+ * opened, since being disconnected is exactly when one needs it. */
 static void
 on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
 {
@@ -389,25 +390,8 @@ on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
         return;
     }
 
-    if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_WIFI)
-    {
-        if (plugin->network_revealer == NULL)
-            return;
-
-        /* Only one of the two lists is open at a time. */
-        set_bluetooth_list_open(plugin, FALSE);
-        set_network_list_open(plugin, TRUE);
-
-        /* Ask for a fresh scan each time the list is opened, so it's
-         * not showing stale results from whenever the dropdown last
-         * happened to scan. */
-        extras_menu_network_rescan(plugin->network);
-
-        return;
-    }
-
-    /* Ethernet or no connection: show a simple info dialog instead of
-     * a list -- nothing to pick between on a wired connection. */
+    /* Ethernet is the active connection: nothing to pick between on a
+     * wired connection, so show a simple info dialog instead of a list. */
     if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET)
     {
         gchar *details = g_strdup_printf(
@@ -416,11 +400,36 @@ on_network_expand_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
                                                       : "Not yet assigned");
         show_message_dialog(plugin, GTK_MESSAGE_INFO, "Connected via Ethernet", details);
         g_free(details);
+        return;
     }
-    else
+
+    /* Everything else: show the Wi-Fi list as long as the radio is on.
+     * This deliberately includes "not connected to anything" (kind
+     * NONE) -- that is exactly when the user needs the list, to pick a
+     * network to connect to. If the radio state hasn't been reported by
+     * the backend yet, assume it's on rather than locking the list
+     * away. */
+    gboolean wifi_on = !plugin->network_wifi_has_enabled_state ||
+                       plugin->network_wifi_last_enabled;
+
+    if (!wifi_on)
     {
-        show_message_dialog(plugin, GTK_MESSAGE_INFO, "Not connected", NULL);
+        show_message_dialog(plugin, GTK_MESSAGE_INFO, "Wi-Fi is turned off",
+                            "Turn Wi-Fi on to see available networks.");
+        return;
     }
+
+    if (plugin->network_revealer == NULL)
+        return;
+
+    /* Only one of the two lists is open at a time. */
+    set_bluetooth_list_open(plugin, FALSE);
+    set_network_list_open(plugin, TRUE);
+
+    /* Ask for a fresh scan each time the list is opened, so it's
+     * not showing stale results from whenever the dropdown last
+     * happened to scan. */
+    extras_menu_network_rescan(plugin->network);
 }
 
 static void prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWindow *parent_window);
@@ -437,8 +446,12 @@ static void set_network_pill_connecting(ExtrasMenuPlugin *plugin, gboolean conne
  * than just showing an error -- this is what lets
  * on_network_row_activated() try silently first and only bother the
  * user if that didn't work. If the network is open, or we already
- * tried with a user-provided password and that failed too, show the
- * error instead of looping back into another password prompt. */
+ * tried with a user-provided password and that failed too, or it's an
+ * enterprise network (a password can't help there), show the error
+ * instead of looping back into another password prompt.
+ *
+ * pending_connect_active stays set across the password fallback and is
+ * cleared on every final outcome (success, or the error being shown). */
 static void
 on_connect_result(gboolean success, const gchar *error_message, gpointer user_data)
 {
@@ -451,12 +464,20 @@ on_connect_result(gboolean success, const gchar *error_message, gpointer user_da
          * (NetworkManager reports the new active AP), but not always
          * immediately, and leaving the row stuck on "Connecting..." in
          * the meantime looks like the attempt hung. */
+        plugin->pending_connect_active = FALSE;
         set_network_pill_connecting(plugin, FALSE);
         set_network_row_status(plugin, plugin->pending_connect_ssid, "Connected");
         return;
     }
 
-    if (plugin->pending_connect_secured && !plugin->pending_connect_password_was_tried)
+    /* Enterprise (802.1X) networks are excluded from the password
+     * fallback: they can't be set up with a password alone, so the
+     * backend refuses to create a profile for one and says why. Asking
+     * for a password anyway would only lead to the same refusal after
+     * the user typed it in -- show the explanation straight away. */
+    if (plugin->pending_connect_secured &&
+        !plugin->pending_connect_password_was_tried &&
+        plugin->pending_connect_security != EXTRAS_MENU_AP_SECURITY_ENTERPRISE)
     {
         /* Still mid-attempt (about to prompt for a password), so the
          * spinner stays running -- only the row's "Connecting..." text
@@ -470,6 +491,7 @@ on_connect_result(gboolean success, const gchar *error_message, gpointer user_da
         return;
     }
 
+    plugin->pending_connect_active = FALSE;
     set_network_pill_connecting(plugin, FALSE);
     set_network_row_status(plugin, plugin->pending_connect_ssid, NULL);
 
@@ -502,6 +524,8 @@ on_password_dialog_response(GtkDialog *dialog, gint response_id, gpointer user_d
     PasswordPromptCtx *ctx = user_data;
     ExtrasMenuPlugin *plugin = ctx->plugin;
 
+    plugin->pending_connect_prompting = FALSE;
+
     if (response_id == GTK_RESPONSE_OK)
     {
         /* extras_menu_network_connect() copies the password, so it is
@@ -516,7 +540,8 @@ on_password_dialog_response(GtkDialog *dialog, gint response_id, gpointer user_d
         /* Cancelled (or closed with Escape / the window button) -- stop
          * the spinner that on_network_row_activated() started,
          * otherwise it would keep spinning forever with no attempt
-         * actually in flight. */
+         * actually in flight, and let the user pick a network again. */
+        plugin->pending_connect_active = FALSE;
         set_network_pill_connecting(plugin, FALSE);
         set_network_row_status(plugin, ctx->ssid, NULL);
     }
@@ -565,6 +590,7 @@ prompt_password_and_connect(ExtrasMenuPlugin *plugin, const gchar *ssid, GtkWind
     g_object_set_data_full(G_OBJECT(dialog), "extras-menu-password-ctx",
                             ctx, password_prompt_ctx_free);
 
+    plugin->pending_connect_prompting = TRUE;
     track_dialog(plugin, dialog);
     g_signal_connect(dialog, "response", G_CALLBACK(on_password_dialog_response), ctx);
 
@@ -640,15 +666,29 @@ on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user
     if (ssid == NULL)
         return;
 
-    /* Stash whether this network is secured on the plugin, keyed by
-     * the SSID we're attempting -- on_connect_result() needs this to
-     * decide whether a failure should fall back to a password prompt
-     * (secured network, no saved profile) or just show an error
-     * (open network, something else went wrong). */
+    /* One attempt at a time. A second one started on top of a running
+     * one would overwrite pending_connect_ssid (the first attempt's
+     * result would then be applied to the wrong row) and a double-click
+     * could create the same profile twice. The pill's spinner already
+     * shows that something is in progress. */
+    if (plugin->pending_connect_active)
+        return;
+
+    ExtrasMenuApSecurity security =
+        (ExtrasMenuApSecurity) GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "extras-menu-security"));
+
+    /* Stash whether this network is secured (and how) on the plugin,
+     * keyed by the SSID we're attempting -- on_connect_result() needs
+     * this to decide whether a failure should fall back to a password
+     * prompt (secured network, no saved profile) or just show an error
+     * (open network, enterprise network, something else went wrong). */
     g_free(plugin->pending_connect_ssid);
     plugin->pending_connect_ssid = g_strdup(ssid);
     plugin->pending_connect_secured = secured;
+    plugin->pending_connect_security = security;
     plugin->pending_connect_password_was_tried = FALSE;
+    plugin->pending_connect_prompting = FALSE;
+    plugin->pending_connect_active = TRUE;
 
     set_network_row_status(plugin, ssid, "Connecting\xE2\x80\xA6"); /* "Connecting…" */
     set_network_pill_connecting(plugin, TRUE);
@@ -1022,6 +1062,7 @@ make_network_row(const ExtrasMenuAccessPoint *ap)
 
     g_object_set_data_full(G_OBJECT(row), "extras-menu-ssid", g_strdup(ap->ssid), g_free);
     g_object_set_data(G_OBJECT(row), "extras-menu-secured", GINT_TO_POINTER(ap->secured));
+    g_object_set_data(G_OBJECT(row), "extras-menu-security", GINT_TO_POINTER((gint) ap->security));
     g_object_set_data(G_OBJECT(row), "extras-menu-status-label", status_label);
     g_object_set_data_full(G_OBJECT(row), "extras-menu-ap-details",
                             row_ap_details_new(ap), row_ap_details_free);
@@ -1062,6 +1103,15 @@ on_network_list_changed(gboolean wifi_available, const ExtrasMenuAccessPoint *ap
         if (plugin->network_row_by_ssid != NULL)
             g_hash_table_insert(plugin->network_row_by_ssid, g_strdup(aps[i].ssid), row);
     }
+
+    /* The rows above are brand new, so the one for the network being
+     * connected to has lost its "Connecting..." text -- and may even
+     * say "Connected" already, since NetworkManager reports the AP as
+     * active while the attempt is still running. Put the right text
+     * back, except while the password dialog is open (then the row
+     * shows nothing, as set by on_connect_result()). */
+    if (plugin->pending_connect_active && !plugin->pending_connect_prompting)
+        set_network_row_status(plugin, plugin->pending_connect_ssid, "Connecting\xE2\x80\xA6"); /* "Connecting…" */
 }
 
 static void extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin);
@@ -1137,6 +1187,9 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->pending_connect_ssid = NULL;
     plugin->pending_connect_secured = FALSE;
     plugin->pending_connect_password_was_tried = FALSE;
+    plugin->pending_connect_security = EXTRAS_MENU_AP_SECURITY_UNKNOWN;
+    plugin->pending_connect_active = FALSE;
+    plugin->pending_connect_prompting = FALSE;
     plugin->updating_wifi_enabled_from_backend = FALSE;
     plugin->open_dialog_count = 0;
 }

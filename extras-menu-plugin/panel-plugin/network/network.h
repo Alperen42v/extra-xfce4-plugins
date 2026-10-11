@@ -142,10 +142,15 @@ void extras_menu_network_set_wifi_enabled(ExtrasMenuNetwork *network, gboolean e
 void extras_menu_network_rescan(ExtrasMenuNetwork *network);
 
 /* Connects to the network with the given SSID. If a saved connection
- * profile for this SSID already exists, it's reactivated as-is (the
- * password argument is ignored in that case -- NetworkManager uses
- * the profile's own stored credentials). Otherwise, behavior depends
- * on requires_password:
+ * profile for this SSID already exists, it's reactivated using its own
+ * stored credentials when no password is given. If a password IS given
+ * (the caller only has one after the stored credentials have already
+ * failed), the profile's password is replaced with it first and the
+ * profile is then activated -- everything else in the profile is left
+ * as it was. If the new password can't be saved, the attempt fails via
+ * result_callback without activating anything. Profiles that need more
+ * than a password (enterprise/802.1X) are just activated as they are.
+ * With no saved profile, behavior depends on requires_password:
  *   - FALSE (open network): a new profile is created and activated,
  *     password may be NULL.
  *   - TRUE (secured network): if password is NULL or empty, this

@@ -148,6 +148,30 @@ struct _ExtrasMenuPlugin
     gboolean pending_connect_secured;
     gboolean pending_connect_password_was_tried;
 
+    /* The security scheme of the network being connected to. Needed
+     * because enterprise (802.1X) networks can't be set up with just a
+     * password, so a failed first attempt on one must show the
+     * backend's explanation instead of falling back to a password
+     * prompt that could never work. */
+    ExtrasMenuApSecurity pending_connect_security;
+
+    /* TRUE from the moment a network row is clicked until the attempt
+     * has finally succeeded, failed or been cancelled -- including
+     * while the password dialog is open. While it's set, further clicks
+     * on network rows are ignored: a second attempt started on top of
+     * the first would overwrite pending_connect_ssid (so the first
+     * attempt's result would be applied to the wrong row), and a quick
+     * double-click could create the same profile twice. */
+    gboolean pending_connect_active;
+
+    /* TRUE while the password dialog is open for the attempt. The
+     * network list is rebuilt from scratch on every scan update (see
+     * on_network_list_changed()), and the rebuilt row of the network
+     * being connected to must show "Connecting..." again -- except
+     * while the user is being asked for a password, when the row shows
+     * nothing. */
+    gboolean pending_connect_prompting;
+
     /* Last state reported by the Bluetooth backend, cached here in
      * case on_bluetooth_changed() fires before bluetooth_toggle exists
      * yet (observed in practice: GDBus can call back synchronously in

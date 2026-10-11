@@ -98,6 +98,16 @@ struct _ExtrasMenuNetwork
      * network struct is already gone. */
     GCancellable *cancellable;
 
+    /* Same idea for the connection status (Wi-Fi/Ethernet kind and
+     * Ethernet IP). Finding it out takes a chain of three D-Bus calls
+     * (PrimaryConnection -> the active connection's properties -> its
+     * IP4Config), and a new chain can start while an older one is still
+     * running. Each chain remembers the number it started with and
+     * drops its result if a newer chain has started since, so a slow
+     * old answer can't overwrite a newer one (e.g. report "Ethernet"
+     * after the cable was already pulled). */
+    guint status_generation;
+
     /* Incremented every time a fresh AP list is requested. Each fetch
      * remembers the number it started with, and a fetch whose number
      * is no longer current when it finishes is dropped -- otherwise two

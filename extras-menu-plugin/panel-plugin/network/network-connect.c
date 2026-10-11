@@ -437,46 +437,398 @@ free_find_profile_ctx(FindProfileCtx *ctx)
     g_free(ctx);
 }
 
+/* Reactivates an already-saved profile as-is -- its stored password
+ * (if any) is used by NetworkManager itself, so the user isn't
+ * prompted again for a network they've already connected to before.
+ *
+ * Device path is deliberately "/" (unspecified) rather than our known
+ * Wi-Fi device path: some saved profiles carry an interface-name
+ * constraint from whenever they were first created (e.g. a different
+ * interface name than the current wlan0), and forcing our device path
+ * against a mismatched profile makes NetworkManager reject the
+ * activation outright ("mismatching interface name") instead of
+ * resolving it itself. Passing "/" lets NM pick the right device using
+ * the profile's own settings. */
+static void
+activate_existing_profile(ExtrasMenuNetwork *network,
+                           const gchar *profile_path,
+                           ExtrasMenuNetworkConnectResultFunc callback,
+                           gpointer user_data)
+{
+    ConnectResultCtx *result_ctx = g_new0(ConnectResultCtx, 1);
+    result_ctx->network = network;
+    result_ctx->callback = callback;
+    result_ctx->user_data = user_data;
+
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        NM_OBJ_PATH,
+        NM_IFACE,
+        "ActivateConnection",
+        g_variant_new("(ooo)", profile_path, "/", "/"),
+        G_VARIANT_TYPE("(o)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, network->cancellable,
+        on_connect_finished, result_ctx);
+}
+
+/* --- giving an already-saved profile a new password -----------------------
+ *
+ * A saved profile whose password is wrong or missing (the router's
+ * password changed, or the profile keeps its secret with a secret
+ * agent we aren't) fails to connect, and the caller then asks the user
+ * for a password. Activating the same profile again would ignore that
+ * password and fail the same way, leaving the user stuck until they
+ * "forget" the network by hand. So when a password is supplied for a
+ * network that already has a profile, the profile's secret is replaced
+ * first, and only then is it activated. Everything else in the profile
+ * (static IP, DNS, MAC settings, ...) is carried over untouched. */
+
+typedef struct
+{
+    ExtrasMenuNetwork *network;
+    gchar *profile_path;
+    gchar *password;
+    ExtrasMenuApSecurity security; /* what the AP advertises now; UNKNOWN if not in the last scan */
+    ExtrasMenuNetworkConnectResultFunc result_callback;
+    gpointer result_user_data;
+} UpdatePasswordCtx;
+
+static void
+free_update_password_ctx(UpdatePasswordCtx *ctx)
+{
+    g_free(ctx->profile_path);
+    g_free(ctx->password);
+    g_free(ctx);
+}
+
+/* Keys of an existing [802-11-wireless-security] section that are
+ * rewritten by build_settings_with_new_password() and must therefore
+ * not be copied over from the old section. */
+static gboolean
+is_replaced_security_key(const gchar *key)
+{
+    static const gchar *const replaced[] = {
+        "key-mgmt", "psk", "psk-flags",
+        "wep-key0", "wep-key-flags", "wep-key-type", "wep-tx-keyidx", "auth-alg",
+        NULL
+    };
+
+    for (guint i = 0; replaced[i] != NULL; i++)
+    {
+        if (strcmp(key, replaced[i]) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/* Returns the profile's settings (as read with GetSettings) with the
+ * security section's password replaced, or NULL if this isn't a profile
+ * a password can be set on (802.1X, or a key management we don't
+ * know) -- the caller then just activates the profile as it is.
+ *
+ * Which key-mgmt to write follows what the AP advertises now, the same
+ * way build_connection_settings() decides it for a new profile, so a
+ * profile that is out of date in that respect (saved as WPA2, the
+ * router has since moved to WPA3-only) is corrected too. The secret is
+ * stored in the profile itself (flags 0), not left to a secret agent. */
+static GVariant *
+build_settings_with_new_password(GVariant *old_settings, const gchar *password,
+                                  ExtrasMenuApSecurity security)
+{
+    GVariant *old_security = g_variant_lookup_value(old_settings, "802-11-wireless-security",
+                                                    G_VARIANT_TYPE("a{sv}"));
+    gchar *old_key_mgmt = NULL;
+
+    if (old_security != NULL)
+    {
+        GVariant *km = g_variant_lookup_value(old_security, "key-mgmt", G_VARIANT_TYPE_STRING);
+        if (km != NULL)
+        {
+            old_key_mgmt = g_variant_dup_string(km, NULL);
+            g_variant_unref(km);
+        }
+    }
+
+    if (old_key_mgmt != NULL &&
+        (g_str_has_prefix(old_key_mgmt, "wpa-eap") || strcmp(old_key_mgmt, "ieee8021x") == 0))
+    {
+        g_free(old_key_mgmt);
+        if (old_security != NULL)
+            g_variant_unref(old_security);
+        return NULL;
+    }
+
+    const gchar *target = NULL;
+    switch (security)
+    {
+        case EXTRAS_MENU_AP_SECURITY_WEP:
+            target = "none";
+            break;
+        case EXTRAS_MENU_AP_SECURITY_WPA3:
+            target = "sae";
+            break;
+        case EXTRAS_MENU_AP_SECURITY_WPA2_WPA3:
+            /* Either works against a transitional AP; keep what the
+             * profile already uses. */
+            target = (old_key_mgmt != NULL && strcmp(old_key_mgmt, "sae") == 0) ? "sae" : "wpa-psk";
+            break;
+        case EXTRAS_MENU_AP_SECURITY_WPA:
+        case EXTRAS_MENU_AP_SECURITY_WPA2:
+        case EXTRAS_MENU_AP_SECURITY_WPA_WPA2:
+            target = "wpa-psk";
+            break;
+        case EXTRAS_MENU_AP_SECURITY_UNKNOWN:
+            /* Not in the last scan (hidden, out of range): all there is
+             * to go by is the profile itself. */
+            if (old_key_mgmt == NULL)
+                target = "wpa-psk";
+            else if (strcmp(old_key_mgmt, "wpa-psk") == 0 || strcmp(old_key_mgmt, "sae") == 0 ||
+                     strcmp(old_key_mgmt, "none") == 0)
+                target = old_key_mgmt;
+            break;
+        default: /* OPEN, OWE, ENTERPRISE: no password to set */
+            break;
+    }
+
+    if (target == NULL)
+    {
+        g_free(old_key_mgmt);
+        if (old_security != NULL)
+            g_variant_unref(old_security);
+        return NULL;
+    }
+
+    /* New security section: the old one's other keys, plus ours. */
+    GVariantBuilder sec;
+    g_variant_builder_init(&sec, G_VARIANT_TYPE("a{sv}"));
+
+    if (old_security != NULL)
+    {
+        GVariantIter iter;
+        const gchar *key = NULL;
+        GVariant *value = NULL;
+
+        g_variant_iter_init(&iter, old_security);
+        while (g_variant_iter_next(&iter, "{&sv}", &key, &value))
+        {
+            if (!is_replaced_security_key(key))
+                g_variant_builder_add(&sec, "{sv}", key, value);
+            g_variant_unref(value);
+        }
+    }
+
+    g_variant_builder_add(&sec, "{sv}", "key-mgmt", g_variant_new_string(target));
+
+    if (strcmp(target, "none") == 0)
+    {
+        /* WEP -- same shape as in build_connection_settings(). */
+        g_variant_builder_add(&sec, "{sv}", "wep-key0", g_variant_new_string(password));
+        g_variant_builder_add(&sec, "{sv}", "wep-key-type", g_variant_new_uint32(1));
+        g_variant_builder_add(&sec, "{sv}", "wep-key-flags", g_variant_new_uint32(0));
+        g_variant_builder_add(&sec, "{sv}", "wep-tx-keyidx", g_variant_new_uint32(0));
+        g_variant_builder_add(&sec, "{sv}", "auth-alg", g_variant_new_string("open"));
+    }
+    else
+    {
+        g_variant_builder_add(&sec, "{sv}", "psk", g_variant_new_string(password));
+        g_variant_builder_add(&sec, "{sv}", "psk-flags", g_variant_new_uint32(0));
+    }
+
+    /* Whole profile: every other section as it was. */
+    GVariantBuilder all;
+    g_variant_builder_init(&all, G_VARIANT_TYPE("a{sa{sv}}"));
+
+    GVariantIter iter;
+    const gchar *name = NULL;
+    GVariant *section = NULL;
+
+    g_variant_iter_init(&iter, old_settings);
+    while (g_variant_iter_next(&iter, "{&s@a{sv}}", &name, &section))
+    {
+        if (strcmp(name, "802-11-wireless-security") != 0)
+            g_variant_builder_add(&all, "{s@a{sv}}", name, section);
+        g_variant_unref(section);
+    }
+    g_variant_builder_add(&all, "{s@a{sv}}", "802-11-wireless-security",
+                           g_variant_builder_end(&sec));
+
+    g_free(old_key_mgmt);
+    if (old_security != NULL)
+        g_variant_unref(old_security);
+
+    return g_variant_builder_end(&all);
+}
+
+/* Reports a failed password update. D-Bus errors carry a
+ * "GDBus.Error:org.freedesktop....:" prefix that means nothing to the
+ * user; it's stripped first. */
+static void
+report_update_failure(UpdatePasswordCtx *ctx, GError *error)
+{
+    if (ctx->result_callback == NULL)
+        return;
+
+    gchar *message;
+    if (error != NULL)
+    {
+        g_dbus_error_strip_remote_error(error);
+        message = g_strdup_printf("Couldn't save the new password: %s", error->message);
+    }
+    else
+    {
+        message = g_strdup("Couldn't save the new password");
+    }
+
+    ctx->result_callback(FALSE, message, ctx->result_user_data);
+    g_free(message);
+}
+
+static void
+on_profile_password_updated(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    UpdatePasswordCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        free_update_password_ctx(ctx);
+        return;
+    }
+
+    if (reply == NULL)
+    {
+        report_update_failure(ctx, error);
+        g_clear_error(&error);
+        free_update_password_ctx(ctx);
+        return;
+    }
+
+    g_variant_unref(reply);
+
+    /* The profile has its new password now -- connect with it. */
+    activate_existing_profile(ctx->network, ctx->profile_path,
+                               ctx->result_callback, ctx->result_user_data);
+    free_update_password_ctx(ctx);
+}
+
+static void
+on_profile_settings_for_update_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    UpdatePasswordCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        free_update_password_ctx(ctx);
+        return;
+    }
+
+    if (reply == NULL)
+    {
+        report_update_failure(ctx, error);
+        g_clear_error(&error);
+        free_update_password_ctx(ctx);
+        return;
+    }
+
+    GVariant *old_settings = NULL;
+    g_variant_get(reply, "(@a{sa{sv}})", &old_settings);
+
+    GVariant *new_settings = build_settings_with_new_password(old_settings, ctx->password,
+                                                              ctx->security);
+    g_variant_unref(old_settings);
+    g_variant_unref(reply);
+
+    if (new_settings == NULL)
+    {
+        /* Not a profile a password can be set on (802.1X, ...): nothing
+         * to update, use it as it is. */
+        activate_existing_profile(ctx->network, ctx->profile_path,
+                                   ctx->result_callback, ctx->result_user_data);
+        free_update_password_ctx(ctx);
+        return;
+    }
+
+    g_dbus_connection_call(
+        ctx->network->system_bus,
+        NM_BUS_NAME,
+        ctx->profile_path,
+        NM_SETTINGS_CONNECTION_IFACE,
+        "Update",
+        g_variant_new("(@a{sa{sv}})", new_settings),
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, ctx->network->cancellable,
+        on_profile_password_updated, ctx);
+}
+
+static void
+update_profile_password_then_activate(ExtrasMenuNetwork *network,
+                                       const gchar *profile_path,
+                                       const gchar *password,
+                                       ExtrasMenuApSecurity security,
+                                       ExtrasMenuNetworkConnectResultFunc result_callback,
+                                       gpointer result_user_data)
+{
+    UpdatePasswordCtx *ctx = g_new0(UpdatePasswordCtx, 1);
+    ctx->network = network;
+    ctx->profile_path = g_strdup(profile_path);
+    ctx->password = g_strdup(password);
+    ctx->security = security;
+    ctx->result_callback = result_callback;
+    ctx->result_user_data = result_user_data;
+
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        profile_path,
+        NM_SETTINGS_CONNECTION_IFACE,
+        "GetSettings",
+        NULL,
+        G_VARIANT_TYPE("(a{sa{sv}})"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, network->cancellable,
+        on_profile_settings_for_update_finished, ctx);
+}
+
 /* Once we know whether an existing profile matches (or we've run out
- * of profiles to check), either activates the found one or falls back
- * to creating+activating a fresh one with build_connection_settings(). */
+ * of profiles to check), either activates the found one (first giving
+ * it the supplied password, if there is one -- see
+ * update_profile_password_then_activate()) or falls back to
+ * creating+activating a fresh one with build_connection_settings(). */
 static void
 proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
 {
-    ConnectResultCtx *result_ctx = g_new0(ConnectResultCtx, 1);
-    result_ctx->network = ctx->network;
-    result_ctx->callback = ctx->result_callback;
-    result_ctx->user_data = ctx->result_user_data;
+    ExtrasMenuApSecurity known_security = network_lookup_known_security(ctx->network, ctx->ssid);
+    gboolean have_password = (ctx->password != NULL && ctx->password[0] != '\0');
 
     if (existing_profile_path != NULL)
     {
-        /* Reactivate the saved profile as-is -- its stored password
-         * (if any) is used by NetworkManager itself, so the user isn't
-         * prompted again for a network they've already connected to
-         * before.
-         *
-         * Device path is deliberately "/" (unspecified) rather than
-         * our known Wi-Fi device path: some saved profiles carry an
-         * interface-name constraint from whenever they were first
-         * created (e.g. a different interface name than the current
-         * wlan0), and forcing our device path against a mismatched
-         * profile makes NetworkManager reject the activation outright
-         * ("mismatching interface name") instead of resolving it
-         * itself. Passing "/" lets NM pick the right device using the
-         * profile's own settings. */
-        g_dbus_connection_call(
-            ctx->network->system_bus,
-            NM_BUS_NAME,
-            NM_OBJ_PATH,
-            NM_IFACE,
-            "ActivateConnection",
-            g_variant_new("(ooo)", existing_profile_path, "/", "/"),
-            G_VARIANT_TYPE("(o)"),
-            G_DBUS_CALL_FLAGS_NONE,
-            -1, ctx->network->cancellable,
-            on_connect_finished, result_ctx);
+        if (have_password && known_security != EXTRAS_MENU_AP_SECURITY_ENTERPRISE &&
+            network_security_needs_password(known_security, ctx->requires_password))
+        {
+            /* A saved profile exists, but the caller has a password for
+             * it -- which only happens after activating the profile as
+             * it was has already failed (see extras-menu.c's
+             * on_connect_result()). Activating it again would ignore the
+             * password, so the profile gets it first. */
+            update_profile_password_then_activate(ctx->network, existing_profile_path,
+                                                   ctx->password, known_security,
+                                                   ctx->result_callback, ctx->result_user_data);
+        }
+        else
+        {
+            activate_existing_profile(ctx->network, existing_profile_path,
+                                       ctx->result_callback, ctx->result_user_data);
+        }
     }
-    else if (network_lookup_known_security(ctx->network, ctx->ssid) == EXTRAS_MENU_AP_SECURITY_ENTERPRISE)
+    else if (known_security == EXTRAS_MENU_AP_SECURITY_ENTERPRISE)
     {
         /* 802.1X needs a username, certificates and so on that we have
          * no way to collect, and a password-only profile could never
@@ -490,11 +842,8 @@ proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
                                   "Set it up once in NetworkManager first, then it can be used from here.",
                                   ctx->result_user_data);
         }
-        g_free(result_ctx);
     }
-    else if (network_security_needs_password(network_lookup_known_security(ctx->network, ctx->ssid),
-                                      ctx->requires_password) &&
-             (ctx->password == NULL || ctx->password[0] == '\0'))
+    else if (network_security_needs_password(known_security, ctx->requires_password) && !have_password)
     {
         /* No saved profile, this network needs a password, and we
          * don't have one -- refuse rather than creating a passwordless
@@ -509,12 +858,16 @@ proceed_with_connect(FindProfileCtx *ctx, const gchar *existing_profile_path)
         {
             ctx->result_callback(FALSE, "No saved password for this network", ctx->result_user_data);
         }
-        g_free(result_ctx);
     }
     else
     {
-        GVariant *connection_settings = build_connection_settings(
-            ctx->ssid, ctx->password, network_lookup_known_security(ctx->network, ctx->ssid));
+        ConnectResultCtx *result_ctx = g_new0(ConnectResultCtx, 1);
+        result_ctx->network = ctx->network;
+        result_ctx->callback = ctx->result_callback;
+        result_ctx->user_data = ctx->result_user_data;
+
+        GVariant *connection_settings = build_connection_settings(ctx->ssid, ctx->password,
+                                                                  known_security);
 
         g_dbus_connection_call(
             ctx->network->system_bus,
