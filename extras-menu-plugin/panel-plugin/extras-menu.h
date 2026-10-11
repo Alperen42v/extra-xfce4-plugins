@@ -63,6 +63,11 @@ struct _ExtrasMenuPlugin
      * whenever the preferences editor saves something. */
     guint quick_actions_config_listener;
 
+    /* Same idea for the pill grid: this instance's listener on the pill
+     * layout config (0 = none), which moves the pills when the
+     * preferences editor saves a new order. */
+    guint pill_layout_listener;
+
     /* UPower battery backend driving the badge above. The badge is
      * hidden until the backend reports a battery is present, so
      * machines without one (desktops) never show it. */

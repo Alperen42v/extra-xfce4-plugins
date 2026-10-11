@@ -1,4 +1,11 @@
 #include "popover.h"
+#include "preferences/pill-layout-config.h"
+
+/* Every pill carries its id (an EXTRAS_MENU_PILL_* string) under this
+ * key, and the root content widget carries its pill grid under the
+ * other one, so a layout can be applied without any extra bookkeeping. */
+#define PILL_ID_KEY   "extras-menu-pill-id"
+#define PILL_GRID_KEY "extras-menu-pill-grid"
 
 /*
  * All shape/spacing styling lives here. Colors are intentionally left
@@ -440,6 +447,69 @@ extras_menu_make_list_revealer(GtkWidget **out_list_box)
     return revealer;
 }
 
+/* Applies a layout to the pill grid. A pill in the layout goes to the
+ * cell its position gives it (element i -> column i % columns, row
+ * i / columns) and is shown; a pill that isn't in the layout is hidden,
+ * and so takes no room at all. Pills are moved with child properties
+ * and shown/hidden, never removed and re-added, so nothing is rebuilt
+ * and the backends' handles on the pills' widgets stay valid. Two pills
+ * may briefly share a cell while the loop is half-way through; GtkGrid
+ * allows that.
+ *
+ * Every pill has no_show_all set (see extras_menu_popover_content_new())
+ * so the gtk_widget_show_all() on the whole dropdown can't bring a
+ * hidden one back; showing/hiding is done here, by hand, only. */
+static void
+extras_menu_apply_pill_order(GtkWidget *grid, const GPtrArray *layout)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(grid));
+
+    for (GList *l = children; l != NULL; l = l->next)
+    {
+        GtkWidget *pill_widget = GTK_WIDGET(l->data);
+        const gchar *id = g_object_get_data(G_OBJECT(pill_widget), PILL_ID_KEY);
+        gint position = -1;
+
+        for (guint i = 0; i < layout->len; i++)
+        {
+            const ExtrasMenuPillInfo *pill = g_ptr_array_index(layout, i);
+
+            if (g_strcmp0(id, pill->id) == 0)
+            {
+                position = (gint) i;
+                break;
+            }
+        }
+
+        if (position >= 0)
+        {
+            gtk_container_child_set(GTK_CONTAINER(grid), pill_widget,
+                                     "left-attach", position % EXTRAS_MENU_PILL_COLUMNS,
+                                     "top-attach", position / EXTRAS_MENU_PILL_COLUMNS,
+                                     NULL);
+        }
+
+        gtk_widget_set_visible(pill_widget, position >= 0);
+    }
+
+    g_list_free(children);
+
+    /* With no pills at all the empty grid would still cost one row of
+     * spacing in the dropdown, so hide it as well. */
+    gtk_widget_set_visible(grid, layout->len > 0);
+}
+
+void
+extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *layout)
+{
+    if (content == NULL)
+        return;
+
+    GtkWidget *grid = g_object_get_data(G_OBJECT(content), PILL_GRID_KEY);
+    if (grid != NULL)
+        extras_menu_apply_pill_order(grid, layout);
+}
+
 GtkWidget *
 extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_icon,
                                  GtkWidget **quick_actions_box,
@@ -542,12 +612,45 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
     GtkWidget *dark_mode = extras_menu_make_pill_toggle("weather-clear-night-symbolic", "Dark Mode", FALSE, FALSE);
     GtkWidget *airplane = extras_menu_make_pill_toggle("airplane-mode-symbolic", "Aeroplane Mode", FALSE, FALSE);
 
-    gtk_grid_attach(GTK_GRID(grid), wired,      0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), quality,    1, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), bluetooth,  0, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), balanced,   1, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), dark_mode,  0, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), airplane,   1, 2, 1, 1);
+    /* Which pills the menu shows, and in which cell each sits, is a
+     * user setting. Here they are only tagged with their ids and
+     * dropped into the grid (one per row for now); the saved layout
+     * then moves each to its real cell, or hides it. */
+    const struct
+    {
+        GtkWidget *widget;
+        const gchar *id;
+    } pill_widgets[] = {
+        { wired,     EXTRAS_MENU_PILL_NETWORK   },
+        { quality,   EXTRAS_MENU_PILL_QUALITY   },
+        { bluetooth, EXTRAS_MENU_PILL_BLUETOOTH },
+        { balanced,  EXTRAS_MENU_PILL_BALANCED  },
+        { dark_mode, EXTRAS_MENU_PILL_DARK_MODE },
+        { airplane,  EXTRAS_MENU_PILL_AIRPLANE  },
+    };
+
+    for (guint i = 0; i < G_N_ELEMENTS(pill_widgets); i++)
+    {
+        GtkWidget *pill_widget = pill_widgets[i].widget;
+
+        g_object_set_data(G_OBJECT(pill_widget), PILL_ID_KEY, (gpointer) pill_widgets[i].id);
+        gtk_grid_attach(GTK_GRID(grid), pill_widget, 0, (gint) i, 1, 1);
+
+        /* A pill the user hasn't put in the menu stays hidden. Its
+         * inner widgets are shown now, once, so that showing the pill
+         * later only needs gtk_widget_show() on the pill itself; and
+         * no_show_all makes the show_all() at the end of this function
+         * leave the pill's visibility alone. */
+        gtk_widget_show_all(pill_widget);
+        gtk_widget_set_no_show_all(pill_widget, TRUE);
+    }
+
+    g_object_set_data(G_OBJECT(root), PILL_GRID_KEY, grid);
+    gtk_widget_set_no_show_all(grid, TRUE);
+
+    GPtrArray *pill_layout = extras_menu_pill_layout_load();
+    extras_menu_apply_pill_order(grid, pill_layout);
+    g_ptr_array_unref(pill_layout);
 
     gtk_box_pack_start(GTK_BOX(root), grid, FALSE, FALSE, 0);
 

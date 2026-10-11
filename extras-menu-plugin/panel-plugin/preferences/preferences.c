@@ -1,6 +1,7 @@
 #include "preferences.h"
 #include "home-page.h"
 #include "quick-actions-page.h"
+#include "pill-layout-page.h"
 
 /*
  * The dialog is a sidebar of sections on the left and the selected
@@ -21,6 +22,7 @@ typedef struct
 static const PreferencesSection sections[] = {
     { "home",          "Home",                 extras_menu_home_page_new },
     { "quick-actions", "Quick action buttons", extras_menu_quick_actions_page_new },
+    { "pill-layout",   "Pill buttons",         extras_menu_pill_layout_page_new },
 };
 
 /* The one open preferences dialog, or NULL. Cleared automatically when

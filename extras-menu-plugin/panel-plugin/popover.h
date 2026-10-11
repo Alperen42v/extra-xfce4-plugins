@@ -95,6 +95,17 @@ GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
  * the user-configured quick-action buttons match the rest of the bar. */
 GtkWidget *extras_menu_top_bar_button_new(void);
 
+/* Applies `layout` to the pill grid's big buttons: a GPtrArray of const
+ * ExtrasMenuPillInfo* in reading order (see
+ * preferences/pill-layout-config.h). Pills in the layout are shown in
+ * their cells; pills not in it are hidden. `content` is the widget
+ * returned by extras_menu_popover_content_new(). The pills themselves
+ * are only moved and shown/hidden, never rebuilt, so the backends'
+ * handles on them (the network and Bluetooth toggles, ...) stay valid
+ * even for a hidden pill. The content already starts out in the saved
+ * layout; this is for applying a later change. */
+void extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *layout);
+
 /* Restyles every quick-action button in quick_actions_box (the box
  * handed out by extras_menu_popover_content_new()) as squares or
  * circles. Works on the box rather than on the buttons themselves, so

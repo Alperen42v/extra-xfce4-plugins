@@ -2,6 +2,7 @@
 #include "popover.h"
 #include "preferences/preferences.h"
 #include "preferences/quick-actions-config.h"
+#include "preferences/pill-layout-config.h"
 #include "quick-actions.h"
 #include "network/network.h"
 
@@ -1149,6 +1150,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->battery = NULL;
     plugin->quick_actions_box = NULL;
     plugin->quick_actions_config_listener = 0;
+    plugin->pill_layout_listener = 0;
     plugin->volume_scale = NULL;
     plugin->volume_icon = NULL;
     plugin->audio = NULL;
@@ -1895,6 +1897,32 @@ on_quick_actions_config_changed(gpointer user_data)
                                                 extras_menu_quick_actions_config_get_shape());
 }
 
+/* The saved pill layout changed: show, hide and move the dropdown's
+ * pills to match. (The dropdown is built in the saved layout to begin
+ * with, so this is only for changes made afterwards.) */
+static void
+on_pill_layout_changed(gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = user_data;
+
+    if (plugin->popover == NULL)
+        return;
+
+    GPtrArray *layout = extras_menu_pill_layout_load();
+    extras_menu_popover_set_pill_order(gtk_bin_get_child(GTK_BIN(plugin->popover)), layout);
+
+    /* A list can only be opened with the chevron of its own pill. If
+     * that pill was just removed while its list was open, close the list
+     * too (which also stops Bluetooth scanning) -- otherwise it would
+     * stay open with nothing left to close it. */
+    if (!extras_menu_pill_layout_contains(layout, EXTRAS_MENU_PILL_NETWORK))
+        set_network_list_open(plugin, FALSE);
+    if (!extras_menu_pill_layout_contains(layout, EXTRAS_MENU_PILL_BLUETOOTH))
+        set_bluetooth_list_open(plugin, FALSE);
+
+    g_ptr_array_unref(layout);
+}
+
 /* Fired when the user picks "Properties..." from the plugin's
  * right-click panel menu (enabled via
  * xfce_panel_plugin_menu_show_configure() in construct() below). */
@@ -1909,6 +1937,12 @@ static void
 on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
     (void) panel_plugin;
+
+    if (plugin->pill_layout_listener != 0)
+    {
+        extras_menu_pill_layout_remove_listener(plugin->pill_layout_listener);
+        plugin->pill_layout_listener = 0;
+    }
 
     if (plugin->quick_actions_config_listener != 0)
     {
@@ -2080,6 +2114,11 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     on_quick_actions_config_changed(plugin);
     plugin->quick_actions_config_listener =
         extras_menu_quick_actions_config_add_listener(on_quick_actions_config_changed, plugin);
+
+    /* Pill order: the content above was already built in the saved
+     * layout; this keeps it in step with later changes. */
+    plugin->pill_layout_listener =
+        extras_menu_pill_layout_add_listener(on_pill_layout_changed, plugin);
 
     /* Frame + drop shadow so the window doesn't look like a bare
      * rectangle floating over the desktop -- GtkPopover normally gives
