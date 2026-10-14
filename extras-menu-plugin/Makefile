@@ -37,6 +37,10 @@ SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC
           $(SRC_DIR)/preferences/pill-layout-page.c \
           $(SRC_DIR)/preferences/slider-layout-config.c \
           $(SRC_DIR)/preferences/slider-layout-page.c
+
+# Every pill module lives in pills/; new ones are picked up automatically.
+SOURCES += $(wildcard $(SRC_DIR)/pills/*.c)
+
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
 TARGET = $(BUILD_DIR)/lib$(PLUGIN_NAME).so

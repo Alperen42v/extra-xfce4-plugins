@@ -191,6 +191,8 @@ update_panel_network_icon(ExtrasMenuPlugin *plugin)
 
     if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_ETHERNET)
         icon_name = "network-wired-symbolic";
+    else if (extras_menu_airplane_mode_is_active(plugin->airplane_mode))
+        icon_name = "airplane-mode-symbolic"; /* aeroplane mode: no Wi-Fi to show */
     else if (plugin->network_wifi_has_enabled_state && !plugin->network_wifi_last_enabled)
         icon_name = "network-wireless-disabled-symbolic"; /* radio switched off */
     else if (plugin->network_last_kind == EXTRAS_MENU_NETWORK_KIND_WIFI)
@@ -339,6 +341,8 @@ on_wifi_enabled_changed(gboolean enabled, gpointer user_data)
 
     plugin->network_wifi_last_enabled = enabled;
     plugin->network_wifi_has_enabled_state = TRUE;
+
+    extras_menu_airplane_mode_wifi_changed(plugin->airplane_mode, enabled);
 
     update_panel_network_icon(plugin);
 
@@ -1190,6 +1194,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->network_has_status = FALSE;
     plugin->network_wifi_last_enabled = FALSE;
     plugin->network_wifi_has_enabled_state = FALSE;
+    plugin->airplane_mode = NULL;
     plugin->pending_connect_ssid = NULL;
     plugin->pending_connect_secured = FALSE;
     plugin->pending_connect_password_was_tried = FALSE;
@@ -1500,6 +1505,8 @@ on_bluetooth_changed(gboolean available, gboolean powered, gpointer user_data)
     plugin->bluetooth_last_powered = powered;
     plugin->bluetooth_has_state = TRUE;
 
+    extras_menu_airplane_mode_bluetooth_changed(plugin->airplane_mode, available, powered);
+
     apply_bluetooth_state(plugin, available, powered);
 }
 
@@ -1514,6 +1521,36 @@ on_bluetooth_toggle_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
 
     extras_menu_bluetooth_set_powered(plugin->bluetooth,
                                        gtk_toggle_button_get_active(button));
+}
+
+/* --- Aeroplane Mode ------------------------------------------------------------- */
+
+/* How pills/airplane-mode.c switches the two radios: through the same
+ * backends the Wi-Fi and Bluetooth pills use, so those pills follow
+ * along through their usual callbacks. */
+static void
+airplane_set_wifi(gboolean enabled, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
+
+    extras_menu_network_set_wifi_enabled(plugin->network, enabled);
+}
+
+static void
+airplane_set_bluetooth(gboolean powered, gpointer user_data)
+{
+    ExtrasMenuPlugin *plugin = EXTRAS_MENU_PLUGIN(user_data);
+
+    extras_menu_bluetooth_set_powered(plugin->bluetooth, powered);
+}
+
+/* Aeroplane mode switched on or off: the panel button's network icon
+ * shows an aeroplane while it is on (see update_panel_network_icon()). */
+static void
+on_airplane_mode_changed(gboolean active, gpointer user_data)
+{
+    (void) active;
+    update_panel_network_icon(EXTRAS_MENU_PLUGIN(user_data));
 }
 
 /* --- Bluetooth device list ------------------------------------------------------ */
@@ -1960,6 +1997,10 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
     (void) panel_plugin;
 
+    /* Before the backends it switches go away. */
+    extras_menu_airplane_mode_free(plugin->airplane_mode);
+    plugin->airplane_mode = NULL;
+
     if (plugin->slider_layout_listener != 0)
     {
         extras_menu_slider_layout_remove_listener(plugin->slider_layout_listener);
@@ -2315,6 +2356,30 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
         gtk_widget_add_events(plugin->network_list_box, GDK_BUTTON_PRESS_MASK);
         g_signal_connect(plugin->network_list_box, "button-press-event",
                           G_CALLBACK(on_network_list_button_press), plugin);
+    }
+
+    /* --- Aeroplane Mode pill: turns Wi-Fi and Bluetooth off together.
+     * Created after both backends so it can switch them; the state they
+     * already reported before this point is handed over below. --- */
+    GtkWidget *airplane_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_AIRPLANE);
+    if (airplane_pill != NULL)
+    {
+        plugin->airplane_mode = extras_menu_airplane_mode_new(airplane_pill,
+                                                               airplane_set_wifi,
+                                                               airplane_set_bluetooth,
+                                                               on_airplane_mode_changed, plugin);
+
+        if (plugin->network_wifi_has_enabled_state)
+        {
+            extras_menu_airplane_mode_wifi_changed(plugin->airplane_mode,
+                                                    plugin->network_wifi_last_enabled);
+        }
+        if (plugin->bluetooth_has_state)
+        {
+            extras_menu_airplane_mode_bluetooth_changed(plugin->airplane_mode,
+                                                         plugin->bluetooth_last_available,
+                                                         plugin->bluetooth_last_powered);
+        }
     }
 
     g_signal_connect(panel_plugin, "free-data",

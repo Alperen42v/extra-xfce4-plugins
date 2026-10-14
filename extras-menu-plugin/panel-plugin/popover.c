@@ -172,7 +172,7 @@ extras_menu_apply_css(GtkWidget *widget)
 }
 
 /* Small helper: a pill-shaped toggle button with an icon + label,
- * matching the "Wired / Bluetooth / Dark Mode / Balanced / Aeroplane
+ * matching the "Wired / Bluetooth / Dark Mode / Balanced / Airplane
  * Mode" style entries in the mockup. */
 static GtkWidget *
 extras_menu_make_pill_toggle(const gchar *icon_name,
@@ -623,6 +623,34 @@ extras_menu_popover_set_pill_shape(GtkWidget *content, ExtrasMenuPillShape shape
         extras_menu_apply_pill_shape(grid, shape);
 }
 
+GtkWidget *
+extras_menu_popover_get_pill(GtkWidget *content, const gchar *pill_id)
+{
+    if (content == NULL || pill_id == NULL)
+        return NULL;
+
+    GtkWidget *grid = g_object_get_data(G_OBJECT(content), PILL_GRID_KEY);
+    if (grid == NULL)
+        return NULL;
+
+    GtkWidget *found = NULL;
+    GList *children = gtk_container_get_children(GTK_CONTAINER(grid));
+
+    for (GList *l = children; l != NULL; l = l->next)
+    {
+        const gchar *id = g_object_get_data(G_OBJECT(l->data), PILL_ID_KEY);
+
+        if (g_strcmp0(id, pill_id) == 0)
+        {
+            found = GTK_WIDGET(l->data);
+            break;
+        }
+    }
+
+    g_list_free(children);
+    return found;
+}
+
 void
 extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *layout)
 {
@@ -770,7 +798,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
     GtkWidget *balanced = extras_menu_make_pill_toggle("weather-clear-symbolic", "Balanced", FALSE, FALSE);
 
     GtkWidget *dark_mode = extras_menu_make_pill_toggle("weather-clear-night-symbolic", "Dark Mode", FALSE, FALSE);
-    GtkWidget *airplane = extras_menu_make_pill_toggle("airplane-mode-symbolic", "Aeroplane Mode", FALSE, FALSE);
+    GtkWidget *airplane = extras_menu_make_pill_toggle("airplane-mode-symbolic", "Airplane Mode", FALSE, FALSE);
 
     /* Which pills the menu shows, and in which cell each sits, is a
      * user setting. Here they are only tagged with their ids and

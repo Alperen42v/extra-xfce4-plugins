@@ -118,6 +118,15 @@ void extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *lay
  * the saved layout; this is for applying a later change. */
 void extras_menu_popover_set_slider_order(GtkWidget *content, const GPtrArray *layout);
 
+/* Returns the pill widget with this id (one of the EXTRAS_MENU_PILL_*
+ * ids from preferences/pill-layout-config.h), or NULL if there is none.
+ * `content` is the widget returned by extras_menu_popover_content_new().
+ * The widget is the pill's own GtkToggleButton, whether the pill is
+ * currently shown or hidden, so a pill module (see pills/) can attach
+ * itself to it without popover.c needing a new out-param for every
+ * pill. The widget stays valid for the lifetime of `content`. */
+GtkWidget *extras_menu_popover_get_pill(GtkWidget *content, const gchar *pill_id);
+
 /* Restyles the pill grid's big buttons: the shipped soft rounded squares
  * or GNOME-style capsules with fully rounded ends. `content` is the
  * widget returned by extras_menu_popover_content_new(). Works on the

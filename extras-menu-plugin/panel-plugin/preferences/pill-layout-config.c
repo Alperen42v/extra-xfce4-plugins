@@ -20,8 +20,8 @@ static const ExtrasMenuPillInfo pills[] = {
       "Not functional yet -- only shown for layout." },
     { EXTRAS_MENU_PILL_DARK_MODE, "Dark Mode",        "weather-clear-night-symbolic",
       "Not functional yet -- only shown for layout." },
-    { EXTRAS_MENU_PILL_AIRPLANE,  "Aeroplane Mode",   "airplane-mode-symbolic",
-      "Not functional yet -- only shown for layout." },
+    { EXTRAS_MENU_PILL_AIRPLANE,  "Airplane Mode",   "airplane-mode-symbolic",
+      "Turns Wi-Fi and Bluetooth off together, and back on again." },
 };
 
 G_STATIC_ASSERT(G_N_ELEMENTS(pills) == EXTRAS_MENU_PILL_COUNT);

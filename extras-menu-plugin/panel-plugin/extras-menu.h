@@ -9,6 +9,7 @@
 #include "bluetooth/bluetooth.h"
 #include "brightness.h"
 #include "network/network.h"
+#include "pills/airplane-mode.h"
 
 G_BEGIN_DECLS
 
@@ -213,6 +214,14 @@ struct _ExtrasMenuPlugin
     /* same idea again, but for network_toggle (Wi-Fi radio on/off) /
      * NetworkManager's WirelessEnabled. */
     gboolean updating_wifi_enabled_from_backend;
+
+    /* The Aeroplane Mode pill's logic (pills/airplane-mode.c): switches
+     * Wi-Fi and Bluetooth off together. It lives off to the side of the
+     * other pills' fields on purpose -- the module owns its own state,
+     * so all that is needed here is this one pointer. It is fed by
+     * on_wifi_enabled_changed() and on_bluetooth_changed(). NULL if the
+     * pill widget wasn't found. */
+    ExtrasMenuAirplaneMode *airplane_mode;
 
     /* How many of the dropdown's own dialogs (password prompt, error
      * and info messages, network details) are currently open. While
