@@ -8,6 +8,7 @@
 
 #include <gtk/gtk.h>
 #include <libxfce4panel/libxfce4panel.h>
+#include <X11/Xlib.h>
 
 G_BEGIN_DECLS
 
@@ -35,9 +36,9 @@ typedef struct
     gboolean use_24h;
     gint     transition_ms;      /* transition animation duration */
     gboolean manual_override;    /* did the user manually toggle via the panel icon */
-    gboolean manual_state;       /* target state while in manual override */
 
     /* --- Runtime state --- */
+    Display *dpy;                /* single X connection, opened once and reused for every gamma update */
     gboolean is_active;          /* is night light currently applied */
     gint     current_temp;       /* temperature (K) currently applied to the screen */
     guint    scheduler_source;
@@ -52,6 +53,8 @@ typedef struct
 /* Defined in nightlight.c, also used by nightlight-prefs.c */
 gint     strength_to_kelvin   (gint strength);
 void     start_transition     (NightlightPlugin *nl, gint target_temp);
+void     set_active           (NightlightPlugin *nl, gboolean active);
+void     refresh_state        (NightlightPlugin *nl);
 void     save_config          (NightlightPlugin *nl);
 gboolean scheduler_tick       (gpointer data);
 gboolean time_in_range        (gint cur_min, gint start_min, gint end_min);

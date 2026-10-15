@@ -11,7 +11,6 @@
 
 #include <libxfce4util/libxfce4util.h>
 
-#include <X11/Xlib.h>
 #include <X11/extensions/Xrandr.h>
 
 #include <math.h>
@@ -66,21 +65,19 @@ temp_to_rgb (gint kelvin, gdouble *r, gdouble *g, gdouble *b)
 /* ---------- Applying gamma via XRandR ---------- */
 
 static void
-apply_gamma_temperature (gint kelvin)
+apply_gamma_temperature (NightlightPlugin *nl, gint kelvin)
 {
-    Display *dpy;
+    Display *dpy = nl->dpy;
     Window root;
     XRRScreenResources *res;
     gdouble rr, gg, bb;
-    int screen;
     int i;
 
-    dpy = XOpenDisplay (NULL);
+    /* no X connection (e.g. not running under X11) -> nothing to do */
     if (dpy == NULL)
         return;
 
-    screen = DefaultScreen (dpy);
-    root = RootWindow (dpy, screen);
+    root = RootWindow (dpy, DefaultScreen (dpy));
 
     temp_to_rgb (kelvin, &rr, &gg, &bb);
 
@@ -89,10 +86,7 @@ apply_gamma_temperature (gint kelvin)
         res = XRRGetScreenResources (dpy, root);
 
     if (res == NULL)
-    {
-        XCloseDisplay (dpy);
         return;
-    }
 
     for (i = 0; i < res->ncrtc; i++)
     {
@@ -121,8 +115,7 @@ apply_gamma_temperature (gint kelvin)
     }
 
     XRRFreeScreenResources (res);
-    XSync (dpy, False);
-    XCloseDisplay (dpy);
+    XFlush (dpy);
 }
 
 /* strength (0-100) -> kelvin. 0 = no effect (6500K), 100 = strongest (1000K) */
@@ -146,8 +139,11 @@ update_panel_icon (NightlightPlugin *nl)
                                                  : "weather-clear-symbolic",
                                    GTK_ICON_SIZE_SMALL_TOOLBAR);
 
-    gtk_widget_set_tooltip_text (nl->button,
-                                  nl->is_active ? "Night Light: On" : "Night Light: Off");
+    if (!nl->master_enabled)
+        gtk_widget_set_tooltip_text (nl->button, "Night Light: Disabled");
+    else
+        gtk_widget_set_tooltip_text (nl->button,
+                                      nl->is_active ? "Night Light: On" : "Night Light: Off");
 }
 
 /* ---------- Animation ---------- */
@@ -165,7 +161,7 @@ animation_tick (gpointer data)
     if (t >= 1.0)
     {
         nl->current_temp = nl->anim_to;
-        apply_gamma_temperature (nl->current_temp);
+        apply_gamma_temperature (nl, nl->current_temp);
         nl->anim_source = 0;
         return G_SOURCE_REMOVE;
     }
@@ -174,7 +170,7 @@ animation_tick (gpointer data)
     gdouble eased = t < 0.5 ? 2 * t * t : 1 - pow (-2 * t + 2, 2) / 2;
     temp = nl->anim_from + (gint) ((nl->anim_to - nl->anim_from) * eased);
     nl->current_temp = temp;
-    apply_gamma_temperature (temp);
+    apply_gamma_temperature (nl, temp);
 
     return G_SOURCE_CONTINUE;
 }
@@ -191,7 +187,7 @@ start_transition (NightlightPlugin *nl, gint target_temp)
     if (nl->transition_ms <= 0)
     {
         nl->current_temp = target_temp;
-        apply_gamma_temperature (target_temp);
+        apply_gamma_temperature (nl, target_temp);
         return;
     }
 
@@ -203,7 +199,7 @@ start_transition (NightlightPlugin *nl, gint target_temp)
 
 /* ---------- On / off logic ---------- */
 
-static void
+void
 set_active (NightlightPlugin *nl, gboolean active)
 {
     gint target_kelvin;
@@ -264,6 +260,31 @@ scheduler_tick (gpointer data)
     return G_SOURCE_CONTINUE;
 }
 
+/* Called after the preferences were changed: clears the manual override, makes
+ * the screen match the new settings and hands control back to the scheduler. */
+void
+refresh_state (NightlightPlugin *nl)
+{
+    nl->manual_override = FALSE;
+
+    if (!nl->master_enabled)
+    {
+        /* plugin switched off: restore the screen and stop reacting */
+        if (nl->is_active)
+            set_active (nl, FALSE);   /* also updates the icon */
+        else
+            update_panel_icon (nl);
+        return;
+    }
+
+    /* live-update the strength if currently active */
+    if (nl->is_active)
+        start_transition (nl, strength_to_kelvin (nl->strength));
+
+    update_panel_icon (nl);
+    scheduler_tick (nl);
+}
+
 /* Manual click: toggles the state and overrides the scheduler. Changing
  * anything in the preferences dialog clears the override so the scheduler
  * takes back control. */
@@ -273,9 +294,11 @@ on_button_clicked (GtkWidget *widget, gpointer data)
     NightlightPlugin *nl = data;
     (void) widget;
 
+    if (!nl->master_enabled)
+        return;   /* plugin is disabled in the preferences */
+
     nl->manual_override = TRUE;
-    nl->manual_state = !nl->is_active;
-    set_active (nl, nl->manual_state);
+    set_active (nl, !nl->is_active);
 }
 
 /* ---------- Save / load settings (XfceRc) ---------- */
@@ -357,8 +380,16 @@ nightlight_free (XfcePanelPlugin *plugin, NightlightPlugin *nl)
     if (nl->anim_source != 0)
         g_source_remove (nl->anim_source);
 
+    /* close the preferences dialog if it is still open; its "destroy" handler
+     * clears nl->dialog and frees the dialog's widget struct */
+    if (nl->dialog != NULL)
+        gtk_widget_destroy (nl->dialog);
+
     /* restore the screen to normal on exit */
-    apply_gamma_temperature (NL_TEMP_NEUTRAL);
+    apply_gamma_temperature (nl, NL_TEMP_NEUTRAL);
+
+    if (nl->dpy != NULL)
+        XCloseDisplay (nl->dpy);
 
     g_free (nl);
 }
@@ -388,6 +419,7 @@ nightlight_construct (XfcePanelPlugin *plugin)
     nl->plugin = plugin;
     nl->current_temp = NL_TEMP_NEUTRAL;
     nl->is_active = FALSE;
+    nl->dpy = XOpenDisplay (NULL);   /* one connection for the plugin's whole lifetime */
 
     load_config (nl);
 
@@ -426,7 +458,7 @@ nightlight_construct (XfcePanelPlugin *plugin)
         {
             nl->is_active = TRUE;
             nl->current_temp = strength_to_kelvin (nl->strength);
-            apply_gamma_temperature (nl->current_temp);
+            apply_gamma_temperature (nl, nl->current_temp);
             update_panel_icon (nl);
         }
     }

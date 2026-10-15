@@ -10,6 +10,8 @@
 typedef struct
 {
     NightlightPlugin *nl;
+    GtkWidget *chk_enabled;
+    GtkWidget *body;            /* everything below the "enable" checkbox */
     GtkWidget *chk_schedule;
     GtkWidget *scale_strength;
     GtkWidget *scale_transition;
@@ -66,6 +68,13 @@ display_to_h24 (gint display_hour, gboolean use_24h, gint ampm)
 }
 
 static void
+on_enabled_toggled (GtkToggleButton *btn, gpointer data)
+{
+    SettingsWidgets *w = data;
+    gtk_widget_set_sensitive (w->body, gtk_toggle_button_get_active (btn));
+}
+
+static void
 on_format_toggled (GtkToggleButton *btn, gpointer data)
 {
     SettingsWidgets *w = data;
@@ -91,6 +100,7 @@ apply_settings_from_widgets (SettingsWidgets *w)
     NightlightPlugin *nl = w->nl;
     gboolean use_24h = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w->radio_24h));
 
+    nl->master_enabled = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w->chk_enabled));
     nl->schedule_enabled = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w->chk_schedule));
     nl->strength = (gint) gtk_range_get_value (GTK_RANGE (w->scale_strength));
     nl->transition_ms = (gint) gtk_range_get_value (GTK_RANGE (w->scale_transition));
@@ -106,16 +116,23 @@ apply_settings_from_widgets (SettingsWidgets *w)
                                     gtk_combo_box_get_active (GTK_COMBO_BOX (w->combo_end_ampm)));
     nl->end_minute = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (w->spin_end_m));
 
-    /* clear the manual override so the scheduler takes back control */
-    nl->manual_override = FALSE;
-
     save_config (nl);
 
-    /* live-update the strength if currently active */
-    if (nl->is_active)
-        start_transition (nl, strength_to_kelvin (nl->strength));
+    /* clears the manual override, applies the new strength / on-off state
+     * and lets the scheduler take back control */
+    refresh_state (nl);
+}
 
-    scheduler_tick (nl);
+static void
+on_dialog_destroy (GtkWidget *dialog, gpointer data)
+{
+    SettingsWidgets *w = data;
+
+    (void) dialog;
+
+    /* runs no matter how the dialog went away: never leave nl->dialog dangling */
+    w->nl->dialog = NULL;
+    g_free (w);
 }
 
 static void
@@ -126,12 +143,9 @@ on_response (GtkDialog *dialog, gint response, gpointer data)
     if (response == GTK_RESPONSE_OK || response == GTK_RESPONSE_APPLY)
         apply_settings_from_widgets (w);
 
+    /* "w" is freed by on_dialog_destroy, so don't touch it after this */
     if (response != GTK_RESPONSE_APPLY)
-    {
-        w->nl->dialog = NULL;
         gtk_widget_destroy (GTK_WIDGET (dialog));
-        g_free (w);
-    }
 }
 
 static GtkWidget *
@@ -149,7 +163,7 @@ labeled_row (GtkWidget *grid, gint row, const gchar *label_text, GtkWidget *widg
 void
 nightlight_show_settings (XfcePanelPlugin *plugin, NightlightPlugin *nl)
 {
-    GtkWidget *dialog, *content, *grid, *box;
+    GtkWidget *dialog, *content, *grid, *box, *outer;
     SettingsWidgets *w;
     gint dh, ampm;
 
@@ -175,9 +189,20 @@ nightlight_show_settings (XfcePanelPlugin *plugin, NightlightPlugin *nl)
     nl->dialog = dialog;
 
     content = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
+    outer = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
+    gtk_container_set_border_width (GTK_CONTAINER (outer), 10);
+    gtk_container_add (GTK_CONTAINER (content), outer);
+
+    /* --- Master switch --- */
+    w->chk_enabled = gtk_check_button_new_with_label ("Enable Night Light");
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w->chk_enabled), nl->master_enabled);
+    gtk_box_pack_start (GTK_BOX (outer), w->chk_enabled, FALSE, FALSE, 0);
+
+    /* everything else lives in "box" so it can be greyed out as a whole */
     box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
-    gtk_container_set_border_width (GTK_CONTAINER (box), 10);
-    gtk_container_add (GTK_CONTAINER (content), box);
+    gtk_box_pack_start (GTK_BOX (outer), box, FALSE, FALSE, 0);
+    w->body = box;
+    gtk_widget_set_sensitive (box, nl->master_enabled);
 
     /* --- Strength --- */
     grid = gtk_grid_new ();
@@ -256,8 +281,10 @@ nightlight_show_settings (XfcePanelPlugin *plugin, NightlightPlugin *nl)
 
     update_hour_spin_ranges (w);
 
+    g_signal_connect (w->chk_enabled, "toggled", G_CALLBACK (on_enabled_toggled), w);
     g_signal_connect (w->radio_24h, "toggled", G_CALLBACK (on_format_toggled), w);
 
     g_signal_connect (dialog, "response", G_CALLBACK (on_response), w);
+    g_signal_connect (dialog, "destroy", G_CALLBACK (on_dialog_destroy), w);
     gtk_widget_show_all (dialog);
 }
