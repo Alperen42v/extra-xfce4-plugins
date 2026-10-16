@@ -10,6 +10,12 @@
 #include <libxfce4panel/libxfce4panel.h>
 #include <X11/Xlib.h>
 
+/* gettext domain; normally passed by the Makefile with -DGETTEXT_PACKAGE=... */
+#ifndef GETTEXT_PACKAGE
+#define GETTEXT_PACKAGE "nightlight"
+#endif
+#include <glib/gi18n-lib.h>   /* _(), N_(), C_() */
+
 G_BEGIN_DECLS
 
 #define NL_TEMP_NEUTRAL   6500   /* reference value used when night light is off */

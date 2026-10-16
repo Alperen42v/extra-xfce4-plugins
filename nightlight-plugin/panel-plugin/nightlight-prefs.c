@@ -178,12 +178,12 @@ nightlight_show_settings (XfcePanelPlugin *plugin, NightlightPlugin *nl)
     w = g_new0 (SettingsWidgets, 1);
     w->nl = nl;
 
-    dialog = gtk_dialog_new_with_buttons ("Night Light Settings",
+    dialog = gtk_dialog_new_with_buttons (_("Night Light Settings"),
                                            GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (nl->button))),
                                            GTK_DIALOG_DESTROY_WITH_PARENT,
-                                           "_Close", GTK_RESPONSE_CLOSE,
-                                           "_Apply", GTK_RESPONSE_APPLY,
-                                           "_OK", GTK_RESPONSE_OK,
+                                           _("_Close"), GTK_RESPONSE_CLOSE,
+                                           _("_Apply"), GTK_RESPONSE_APPLY,
+                                           _("_OK"), GTK_RESPONSE_OK,
                                            NULL);
     gtk_window_set_default_size (GTK_WINDOW (dialog), 380, -1);
     nl->dialog = dialog;
@@ -194,7 +194,7 @@ nightlight_show_settings (XfcePanelPlugin *plugin, NightlightPlugin *nl)
     gtk_container_add (GTK_CONTAINER (content), outer);
 
     /* --- Master switch --- */
-    w->chk_enabled = gtk_check_button_new_with_label ("Enable Night Light");
+    w->chk_enabled = gtk_check_button_new_with_label (_("Enable Night Light"));
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w->chk_enabled), nl->master_enabled);
     gtk_box_pack_start (GTK_BOX (outer), w->chk_enabled, FALSE, FALSE, 0);
 
@@ -213,23 +213,23 @@ nightlight_show_settings (XfcePanelPlugin *plugin, NightlightPlugin *nl)
     w->scale_strength = gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, 0, 100, 1);
     gtk_scale_set_value_pos (GTK_SCALE (w->scale_strength), GTK_POS_RIGHT);
     gtk_range_set_value (GTK_RANGE (w->scale_strength), nl->strength);
-    labeled_row (grid, 0, "Warm light strength:", w->scale_strength);
+    labeled_row (grid, 0, _("Warm light strength:"), w->scale_strength);
 
     w->scale_transition = gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, 0, 8000, 100);
     gtk_scale_set_value_pos (GTK_SCALE (w->scale_transition), GTK_POS_RIGHT);
     gtk_range_set_value (GTK_RANGE (w->scale_transition), nl->transition_ms);
-    labeled_row (grid, 1, "Transition duration (ms):", w->scale_transition);
+    labeled_row (grid, 1, _("Transition duration (ms):"), w->scale_transition);
 
     gtk_box_pack_start (GTK_BOX (box), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
 
     /* --- Schedule --- */
-    w->chk_schedule = gtk_check_button_new_with_label ("Use automatic schedule");
+    w->chk_schedule = gtk_check_button_new_with_label (_("Use automatic schedule"));
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (w->chk_schedule), nl->schedule_enabled);
     gtk_box_pack_start (GTK_BOX (box), w->chk_schedule, FALSE, FALSE, 0);
 
     GtkWidget *fmt_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    w->radio_24h = gtk_radio_button_new_with_label (NULL, "24-hour");
-    w->radio_12h = gtk_radio_button_new_with_label_from_widget (GTK_RADIO_BUTTON (w->radio_24h), "12-hour (AM/PM)");
+    w->radio_24h = gtk_radio_button_new_with_label (NULL, _("24-hour"));
+    w->radio_12h = gtk_radio_button_new_with_label_from_widget (GTK_RADIO_BUTTON (w->radio_24h), _("12-hour (AM/PM)"));
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (nl->use_24h ? w->radio_24h : w->radio_12h), TRUE);
     gtk_box_pack_start (GTK_BOX (fmt_box), w->radio_24h, FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (fmt_box), w->radio_12h, FALSE, FALSE, 0);
@@ -241,28 +241,28 @@ nightlight_show_settings (XfcePanelPlugin *plugin, NightlightPlugin *nl)
     gtk_box_pack_start (GTK_BOX (box), sched_grid, FALSE, FALSE, 0);
 
     /* Start time */
-    gtk_grid_attach (GTK_GRID (sched_grid), gtk_label_new ("Start:"), 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID (sched_grid), gtk_label_new (_("Start:")), 0, 0, 1, 1);
     w->spin_start_h = gtk_spin_button_new_with_range (0, 23, 1);
     w->spin_start_m = gtk_spin_button_new_with_range (0, 59, 1);
     gtk_spin_button_set_wrap (GTK_SPIN_BUTTON (w->spin_start_h), TRUE);
     gtk_spin_button_set_wrap (GTK_SPIN_BUTTON (w->spin_start_m), TRUE);
     w->combo_start_ampm = gtk_combo_box_text_new ();
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_start_ampm), "AM");
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_start_ampm), "PM");
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_start_ampm), _("AM"));
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_start_ampm), _("PM"));
     gtk_grid_attach (GTK_GRID (sched_grid), w->spin_start_h, 1, 0, 1, 1);
     gtk_grid_attach (GTK_GRID (sched_grid), gtk_label_new (":"), 2, 0, 1, 1);
     gtk_grid_attach (GTK_GRID (sched_grid), w->spin_start_m, 3, 0, 1, 1);
     gtk_grid_attach (GTK_GRID (sched_grid), w->combo_start_ampm, 4, 0, 1, 1);
 
     /* End time */
-    gtk_grid_attach (GTK_GRID (sched_grid), gtk_label_new ("End:"), 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID (sched_grid), gtk_label_new (_("End:")), 0, 1, 1, 1);
     w->spin_end_h = gtk_spin_button_new_with_range (0, 23, 1);
     w->spin_end_m = gtk_spin_button_new_with_range (0, 59, 1);
     gtk_spin_button_set_wrap (GTK_SPIN_BUTTON (w->spin_end_h), TRUE);
     gtk_spin_button_set_wrap (GTK_SPIN_BUTTON (w->spin_end_m), TRUE);
     w->combo_end_ampm = gtk_combo_box_text_new ();
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_end_ampm), "AM");
-    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_end_ampm), "PM");
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_end_ampm), _("AM"));
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (w->combo_end_ampm), _("PM"));
     gtk_grid_attach (GTK_GRID (sched_grid), w->spin_end_h, 1, 1, 1, 1);
     gtk_grid_attach (GTK_GRID (sched_grid), gtk_label_new (":"), 2, 1, 1, 1);
     gtk_grid_attach (GTK_GRID (sched_grid), w->spin_end_m, 3, 1, 1, 1);

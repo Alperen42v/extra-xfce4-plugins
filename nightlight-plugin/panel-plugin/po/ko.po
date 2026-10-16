@@ -1,0 +1,84 @@
+# Korean translation for nightlight.
+# This file is distributed under the same license as the nightlight package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: nightlight 0.1\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-15 14:26+0000\n"
+"PO-Revision-Date: 2026-10-15 14:26+0000\n"
+"Last-Translator: \n"
+"Language-Team: Korean\n"
+"Language: ko\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: panel-plugin/nightlight.c:147
+msgid "Night Light: Disabled"
+msgstr "야간 조명: 사용 안 함"
+
+#: panel-plugin/nightlight.c:150
+msgid "Night Light: On"
+msgstr "야간 조명: 켜짐"
+
+#: panel-plugin/nightlight.c:150
+msgid "Night Light: Off"
+msgstr "야간 조명: 꺼짐"
+
+#: panel-plugin/nightlight-prefs.c:181
+msgid "Night Light Settings"
+msgstr "야간 조명 설정"
+
+#: panel-plugin/nightlight-prefs.c:184
+msgid "_Close"
+msgstr "닫기(_C)"
+
+#: panel-plugin/nightlight-prefs.c:185
+msgid "_Apply"
+msgstr "적용(_A)"
+
+#: panel-plugin/nightlight-prefs.c:186
+msgid "_OK"
+msgstr "확인(_O)"
+
+#: panel-plugin/nightlight-prefs.c:197
+msgid "Enable Night Light"
+msgstr "야간 조명 사용"
+
+#: panel-plugin/nightlight-prefs.c:216
+msgid "Warm light strength:"
+msgstr "따뜻한 빛 강도:"
+
+#: panel-plugin/nightlight-prefs.c:221
+msgid "Transition duration (ms):"
+msgstr "전환 시간(ms):"
+
+#: panel-plugin/nightlight-prefs.c:226
+msgid "Use automatic schedule"
+msgstr "자동 일정 사용"
+
+#: panel-plugin/nightlight-prefs.c:231
+msgid "24-hour"
+msgstr "24시간제"
+
+#: panel-plugin/nightlight-prefs.c:232
+msgid "12-hour (AM/PM)"
+msgstr "12시간제 (오전/오후)"
+
+#: panel-plugin/nightlight-prefs.c:244
+msgid "Start:"
+msgstr "시작:"
+
+#: panel-plugin/nightlight-prefs.c:250 panel-plugin/nightlight-prefs.c:264
+msgid "AM"
+msgstr "오전"
+
+#: panel-plugin/nightlight-prefs.c:251 panel-plugin/nightlight-prefs.c:265
+msgid "PM"
+msgstr "오후"
+
+#: panel-plugin/nightlight-prefs.c:258
+msgid "End:"
+msgstr "종료:"

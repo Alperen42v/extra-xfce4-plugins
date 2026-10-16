@@ -13,6 +13,10 @@
 
 #include <X11/extensions/Xrandr.h>
 
+#ifndef PACKAGE_LOCALE_DIR
+#define PACKAGE_LOCALE_DIR "/usr/share/locale"
+#endif
+
 #include <math.h>
 #include <time.h>
 #include <string.h>
@@ -140,10 +144,10 @@ update_panel_icon (NightlightPlugin *nl)
                                    GTK_ICON_SIZE_SMALL_TOOLBAR);
 
     if (!nl->master_enabled)
-        gtk_widget_set_tooltip_text (nl->button, "Night Light: Disabled");
+        gtk_widget_set_tooltip_text (nl->button, _("Night Light: Disabled"));
     else
         gtk_widget_set_tooltip_text (nl->button,
-                                      nl->is_active ? "Night Light: On" : "Night Light: Off");
+                                      nl->is_active ? _("Night Light: On") : _("Night Light: Off"));
 }
 
 /* ---------- Animation ---------- */
@@ -412,10 +416,43 @@ nightlight_save (XfcePanelPlugin *plugin, NightlightPlugin *nl)
     save_config (nl);
 }
 
+/* Translations are looked up in ~/.local/share/locale if a catalog for the
+ * current language was installed there ("make install" as a normal user),
+ * otherwise in the system directory ("sudo make install").  Deciding this at
+ * run time means the same build works for both kinds of install. */
+static void
+init_i18n (void)
+{
+    const gchar * const *langs = g_get_language_names ();
+    gchar *user_dir = g_build_filename (g_get_user_data_dir (), "locale", NULL);
+    const gchar *dir = PACKAGE_LOCALE_DIR;
+    gint i;
+
+    for (i = 0; langs[i] != NULL; i++)
+    {
+        gchar *mo = g_build_filename (user_dir, langs[i], "LC_MESSAGES",
+                                      GETTEXT_PACKAGE ".mo", NULL);
+        gboolean found = g_file_test (mo, G_FILE_TEST_EXISTS);
+        g_free (mo);
+        if (found)
+        {
+            dir = user_dir;
+            break;
+        }
+    }
+
+    xfce_textdomain (GETTEXT_PACKAGE, dir, "UTF-8");
+    g_free (user_dir);   /* xfce_textdomain() copies the path (bindtextdomain) */
+}
+
 static void
 nightlight_construct (XfcePanelPlugin *plugin)
 {
-    NightlightPlugin *nl = g_new0 (NightlightPlugin, 1);
+    NightlightPlugin *nl;
+
+    init_i18n ();
+
+    nl = g_new0 (NightlightPlugin, 1);
     nl->plugin = plugin;
     nl->current_temp = NL_TEMP_NEUTRAL;
     nl->is_active = FALSE;
