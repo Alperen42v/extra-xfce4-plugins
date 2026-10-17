@@ -134,7 +134,7 @@ struct _ExtrasMenuPlugin
 
     /* Maps SSID (owned gchar*) -> the GtkListBoxRow currently showing
      * it (borrowed, not owned -- rows belong to network_list_box), so
-     * on_network_row_activated() and on_connect_result() can find and
+     * on_network_row_activated() and extras_menu_network_ui_connect_result() can find and
      * update a specific row's "Connecting.../Connected" label without
      * a linear search. Rebuilt every time on_network_list_changed()
      * repopulates the list. */
@@ -156,9 +156,9 @@ struct _ExtrasMenuPlugin
     gboolean network_wifi_has_enabled_state;
 
     /* Tracks the network currently being connected to, so
-     * on_connect_result() knows whether a failure should fall back to
+     * extras_menu_network_ui_connect_result() knows whether a failure should fall back to
      * a password prompt (see on_network_row_activated() in
-     * extras-menu.c for the full flow: try without a password first,
+     * network/network-ui.c for the full flow: try without a password first,
      * only prompt if that fails and the network is secured). */
     gchar *pending_connect_ssid;
     gboolean pending_connect_secured;
@@ -227,7 +227,7 @@ struct _ExtrasMenuPlugin
      * and info messages, network details) are currently open. While
      * this is non-zero, the dropdown's focus-out handler leaves the
      * dropdown open, since focus moving to one of those dialogs isn't
-     * the user clicking away. See track_dialog() in extras-menu.c. */
+     * the user clicking away. See extras_menu_dropdown_track_dialog() in dropdown.c. */
     guint open_dialog_count;
 };
 

@@ -18,7 +18,7 @@ G_BEGIN_DECLS
  * doesn't care which.
  *
  * battery_label/battery_icon hand back the top bar's battery badge
- * pieces (initially a "100%" placeholder; extras-menu.c keeps them in
+ * pieces (initially a "100%" placeholder; system-status.c keeps them in
  * step with the UPower backend). quick_actions_box hands back the
  * empty horizontal GtkBox at the top bar's right edge that holds the
  * quick-action buttons -- popover.c doesn't create those buttons
@@ -26,7 +26,7 @@ G_BEGIN_DECLS
  * fills the box and keeps it up to date.
  *
  * The volume_scale and brightness_scale out-params give the caller
- * (extras-menu.c) handles to the two sliders so they can be wired up
+ * (system-status.c) handles to the two sliders so they can be wired up
  * to real backends (PulseAudio/PipeWire for volume, brightnessctl for
  * brightness) -- both to push user-driven changes out, and to reflect
  * external changes back in. volume_icon hands back the volume row's

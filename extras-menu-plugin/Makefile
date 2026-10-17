@@ -18,17 +18,25 @@ LDFLAGS += -shared
 SRC_DIR = panel-plugin
 BUILD_DIR = build
 
+# Lets every source, also those in subfolders, include headers by their
+# path from panel-plugin/ (e.g. "extras-menu.h", "network/network-ui.h").
+CFLAGS += -I$(SRC_DIR)
+
 SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC_DIR)/brightness.c \
           $(SRC_DIR)/quick-actions.c $(SRC_DIR)/battery.c \
+          $(SRC_DIR)/dropdown.c $(SRC_DIR)/system-status.c \
           $(SRC_DIR)/bluetooth/bluetooth.c \
           $(SRC_DIR)/bluetooth/bluetooth-adapter.c \
           $(SRC_DIR)/bluetooth/bluetooth-devices.c \
           $(SRC_DIR)/bluetooth/bluetooth-connect.c \
+          $(SRC_DIR)/bluetooth/bluetooth-ui.c \
           $(SRC_DIR)/network/network.c \
           $(SRC_DIR)/network/network-ap.c \
           $(SRC_DIR)/network/network-status.c \
           $(SRC_DIR)/network/network-connect.c \
           $(SRC_DIR)/network/network-forget.c \
+          $(SRC_DIR)/network/network-ui.c \
+          $(SRC_DIR)/network/network-dialogs.c \
           $(SRC_DIR)/preferences/preferences.c \
           $(SRC_DIR)/preferences/home-page.c \
           $(SRC_DIR)/preferences/quick-actions-config.c \
