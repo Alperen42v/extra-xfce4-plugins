@@ -755,11 +755,16 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
     GtkWidget *network_chevron = NULL;
     GtkWidget *network_stack = NULL;
     GtkWidget *network_spin = NULL;
-    GtkWidget *wired = extras_menu_make_split_pill("network-wired-symbolic", "Wi-Fi",
-                                                     &network_main_toggle, &network_label,
-                                                     &network_icon, &network_expand,
-                                                     &network_chevron, &network_stack,
-                                                     &network_spin);
+    /* Initial look only, until the network backend reports the real
+     * state: icon and label must agree with each other (a wired icon
+     * next to a "Wi-Fi" label would show a contradiction for a moment
+     * on every start), so both start out as Wi-Fi. network-ui.c swaps
+     * them to the Ethernet look if that is what is actually active. */
+    GtkWidget *network_pill = extras_menu_make_split_pill("network-wireless-symbolic", "Wi-Fi",
+                                                            &network_main_toggle, &network_label,
+                                                            &network_icon, &network_expand,
+                                                            &network_chevron, &network_stack,
+                                                            &network_spin);
     if (network_toggle != NULL)
         *network_toggle = network_main_toggle;
     if (network_pill_label != NULL)
@@ -809,7 +814,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
         GtkWidget *widget;
         const gchar *id;
     } pill_widgets[] = {
-        { wired,     EXTRAS_MENU_PILL_NETWORK   },
+        { network_pill, EXTRAS_MENU_PILL_NETWORK },
         { quality,   EXTRAS_MENU_PILL_QUALITY   },
         { bluetooth, EXTRAS_MENU_PILL_BLUETOOTH },
         { balanced,  EXTRAS_MENU_PILL_BALANCED  },
