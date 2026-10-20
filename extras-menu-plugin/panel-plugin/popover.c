@@ -1,6 +1,7 @@
 #include "popover.h"
 #include "preferences/pill-layout-config.h"
 #include "preferences/slider-layout-config.h"
+#include "microphone.h"
 
 /* Every pill carries its id (an EXTRAS_MENU_PILL_* string) under this
  * key, and the root content widget carries its pill grid under the
@@ -13,6 +14,13 @@
  * the box that holds the rows. */
 #define SLIDER_ID_KEY  "extras-menu-slider-id"
 #define SLIDER_BOX_KEY "extras-menu-slider-box"
+
+/* The microphone row also carries its three working parts, so
+ * extras_menu_popover_get_microphone() can hand them out without the
+ * content constructor needing three more out-params. */
+#define MIC_SCALE_KEY  "extras-menu-mic-scale"
+#define MIC_BUTTON_KEY "extras-menu-mic-button"
+#define MIC_ICON_KEY   "extras-menu-mic-icon"
 
 /*
  * All shape/spacing styling lives here. Colors are intentionally left
@@ -47,6 +55,22 @@ static const gchar *EXTRAS_MENU_CSS =
     ".extras-menu-volume-row {"
     "  border-radius: 14px;"
     "  padding: 8px 14px;"
+    "}"
+    /* Microphone row: its icon is a button (click = mute), made to
+     * look and measure exactly like the plain icon of the other rows
+     * so the three sliders still line up. The thin marks under the
+     * scale (at 40% and 100%) are kept to one hairline each. */
+    ".extras-menu-mic-button {"
+    "  padding: 0;"
+    "  min-width: 0;"
+    "  min-height: 0;"
+    "  border: none;"
+    "  box-shadow: none;"
+    "  background: none;"
+    "}"
+    ".extras-menu-mic-row scale marks indicator {"
+    "  min-width: 1px;"
+    "  min-height: 6px;"
     "}"
     /* Top bar: battery badge is a small pill, quick-action buttons are
      * plain icon buttons (no pill background) so they read as
@@ -454,6 +478,68 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWi
     return row;
 }
 
+/* The microphone's slider row. Like the other rows, but:
+ *  - the scale runs 0..150 (the level can be pushed past 100%),
+ *  - two thin marks sit under it, at 100% (above that the signal is
+ *    amplified in software, which adds noise) and at 40% (a level that
+ *    suits most microphones). The marks carry no text on purpose,
+ *  - the icon is inside a flat button, so a click can mute.
+ * The three parts are handed back through out-params and also stored on
+ * the row (see MIC_*_KEY). */
+static GtkWidget *
+extras_menu_make_microphone_row(GtkWidget **out_scale, GtkWidget **out_button,
+                                 GtkWidget **out_icon)
+{
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    extras_menu_apply_css(row);
+
+    GtkStyleContext *row_ctx = gtk_widget_get_style_context(row);
+    gtk_style_context_add_class(row_ctx, "extras-menu-volume-row");
+    gtk_style_context_add_class(row_ctx, "extras-menu-mic-row");
+
+    GtkWidget *icon = gtk_image_new_from_icon_name("microphone-sensitivity-high-symbolic",
+                                                    GTK_ICON_SIZE_BUTTON);
+
+    GtkWidget *button = gtk_button_new();
+    gtk_button_set_relief(GTK_BUTTON(button), GTK_RELIEF_NONE);
+    gtk_widget_set_focus_on_click(button, FALSE);
+    gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
+    gtk_style_context_add_class(gtk_widget_get_style_context(button),
+                                 "extras-menu-mic-button");
+    gtk_container_add(GTK_CONTAINER(button), icon);
+
+    GtkWidget *scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0,
+                                                 EXTRAS_MENU_MICROPHONE_MAX_PERCENT, 1);
+    gtk_scale_set_draw_value(GTK_SCALE(scale), FALSE);
+    gtk_range_set_value(GTK_RANGE(scale), 0);
+    gtk_widget_set_hexpand(scale, TRUE);
+    gtk_scale_add_mark(GTK_SCALE(scale), EXTRAS_MENU_MICROPHONE_STABLE_PERCENT,
+                       GTK_POS_BOTTOM, NULL);
+    gtk_scale_add_mark(GTK_SCALE(scale), EXTRAS_MENU_MICROPHONE_NORMAL_PERCENT,
+                       GTK_POS_BOTTOM, NULL);
+
+    /* The marks make the scale taller, below its trough; lift the icon a
+     * little so it stays level with the trough rather than with the
+     * middle of the whole scale. */
+    gtk_widget_set_margin_bottom(button, 6);
+
+    gtk_box_pack_start(GTK_BOX(row), button, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), scale, TRUE, TRUE, 0);
+
+    g_object_set_data(G_OBJECT(row), MIC_SCALE_KEY, scale);
+    g_object_set_data(G_OBJECT(row), MIC_BUTTON_KEY, button);
+    g_object_set_data(G_OBJECT(row), MIC_ICON_KEY, icon);
+
+    if (out_scale != NULL)
+        *out_scale = scale;
+    if (out_button != NULL)
+        *out_button = button;
+    if (out_icon != NULL)
+        *out_icon = icon;
+
+    return row;
+}
+
 /* A collapsed, scrollable list that slides open below the pill grid
  * (used for the Wi-Fi network list and the Bluetooth device list). Full
  * width rather than part of the two-column grid, since a list of names
@@ -662,6 +748,46 @@ extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *layout)
         extras_menu_apply_pill_order(grid, layout);
 }
 
+gboolean
+extras_menu_popover_get_microphone(GtkWidget *content, GtkWidget **scale,
+                                    GtkWidget **mute_button, GtkWidget **icon)
+{
+    if (content == NULL)
+        return FALSE;
+
+    GtkWidget *box = g_object_get_data(G_OBJECT(content), SLIDER_BOX_KEY);
+    if (box == NULL)
+        return FALSE;
+
+    GtkWidget *row = NULL;
+    GList *children = gtk_container_get_children(GTK_CONTAINER(box));
+
+    for (GList *l = children; l != NULL; l = l->next)
+    {
+        const gchar *id = g_object_get_data(G_OBJECT(l->data), SLIDER_ID_KEY);
+
+        if (g_strcmp0(id, EXTRAS_MENU_SLIDER_MICROPHONE) == 0)
+        {
+            row = l->data;
+            break;
+        }
+    }
+
+    g_list_free(children);
+
+    if (row == NULL)
+        return FALSE;
+
+    if (scale != NULL)
+        *scale = g_object_get_data(G_OBJECT(row), MIC_SCALE_KEY);
+    if (mute_button != NULL)
+        *mute_button = g_object_get_data(G_OBJECT(row), MIC_BUTTON_KEY);
+    if (icon != NULL)
+        *icon = g_object_get_data(G_OBJECT(row), MIC_ICON_KEY);
+
+    return TRUE;
+}
+
 GtkWidget *
 extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_icon,
                                  GtkWidget **quick_actions_box,
@@ -711,6 +837,11 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
     if (brightness_scale != NULL)
         *brightness_scale = bright_scale;
 
+    /* The microphone row hands its widgets out through
+     * extras_menu_popover_get_microphone(), not through this
+     * function's parameters. */
+    GtkWidget *mic_row = extras_menu_make_microphone_row(NULL, NULL, NULL);
+
     const struct
     {
         GtkWidget *widget;
@@ -718,6 +849,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
     } slider_rows[] = {
         { vol_row,    EXTRAS_MENU_SLIDER_VOLUME     },
         { bright_row, EXTRAS_MENU_SLIDER_BRIGHTNESS },
+        { mic_row,    EXTRAS_MENU_SLIDER_MICROPHONE },
     };
 
     for (guint i = 0; i < G_N_ELEMENTS(slider_rows); i++)

@@ -13,6 +13,8 @@ static const ExtrasMenuSliderInfo sliders[] = {
       "Sets the sound volume; the icon changes when it is muted." },
     { EXTRAS_MENU_SLIDER_BRIGHTNESS, "Brightness", "display-brightness-symbolic",
       "Sets the screen brightness (needs brightnessctl)." },
+    { EXTRAS_MENU_SLIDER_MICROPHONE, "Microphone", "microphone-sensitivity-high-symbolic",
+      "Sets the microphone level up to 150%; click its icon to mute (needs pactl)." },
 };
 
 G_STATIC_ASSERT(G_N_ELEMENTS(sliders) == EXTRAS_MENU_SLIDER_COUNT);

@@ -9,13 +9,14 @@ G_BEGIN_DECLS
  * The menu shows any subset of them, in any order, so a layout is never
  * longer than this. Must match the table in slider-layout-config.c
  * (checked at compile time). */
-#define EXTRAS_MENU_SLIDER_COUNT 2
+#define EXTRAS_MENU_SLIDER_COUNT 3
 
 /* The stable ids of the sliders. These are what is written to the
  * config file, so never rename one -- a user's saved layout would stop
  * matching it. */
 #define EXTRAS_MENU_SLIDER_VOLUME     "volume"
 #define EXTRAS_MENU_SLIDER_BRIGHTNESS "brightness"
+#define EXTRAS_MENU_SLIDER_MICROPHONE "microphone"
 
 /* What the preferences editor needs to show a slider. The structs live
  * in a static table: pointers to them never need freeing. */
@@ -42,8 +43,8 @@ const ExtrasMenuSliderInfo *extras_menu_slider_catalog_get(guint index);
  * function: release it with g_ptr_array_unref() and nothing else.
  */
 
-/* Every slider, in the order the plugin shipped with (volume, then
- * brightness). */
+/* Every slider, in the order the plugin shipped with (volume,
+ * brightness, then microphone). */
 GPtrArray *extras_menu_slider_layout_defaults(void);
 
 /* Whether the layout shows the slider with this id. */

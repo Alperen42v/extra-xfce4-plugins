@@ -8,6 +8,7 @@
 #include "battery.h"
 #include "bluetooth/bluetooth.h"
 #include "brightness.h"
+#include "microphone.h"
 #include "network/network.h"
 #include "pills/airplane-mode.h"
 
@@ -229,6 +230,19 @@ struct _ExtrasMenuPlugin
      * dropdown open, since focus moving to one of those dialogs isn't
      * the user clicking away. See extras_menu_dropdown_track_dialog() in dropdown.c. */
     guint open_dialog_count;
+
+    /* The microphone row's logic (microphone.c): level, mute and
+     * following the default input device. Like the Aeroplane Mode
+     * module it owns its own state and holds on to the row's widgets
+     * itself, so all that is needed here is this one pointer. NULL if
+     * the row's widgets weren't found.
+     *
+     * Kept as the LAST field on purpose: every .c file reads this
+     * struct by field offset, so a field added in the middle moves all
+     * the ones after it -- and any file that a build didn't recompile
+     * would then read the wrong memory. Appended here, the older
+     * offsets stay valid. */
+    ExtrasMenuMicrophone *microphone;
 };
 
 struct _ExtrasMenuPluginClass

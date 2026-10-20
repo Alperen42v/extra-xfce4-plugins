@@ -10,7 +10,8 @@ G_BEGIN_DECLS
 
 /*
  * Builds the full dropdown content: a top status bar (battery badge +
- * quick-action buttons), then volume + brightness sliders, then the
+ * quick-action buttons), then the volume, brightness and microphone
+ * sliders, then the
  * pill grid, then a hidden-by-default Wi-Fi network list. The root
  * widget is ready to be placed inside any GtkContainer via
  * gtk_container_add() -- currently a plain GtkWindow (see
@@ -117,6 +118,18 @@ void extras_menu_popover_set_pill_order(GtkWidget *content, const GPtrArray *lay
  * their backends even while hidden. The content already starts out in
  * the saved layout; this is for applying a later change. */
 void extras_menu_popover_set_slider_order(GtkWidget *content, const GPtrArray *layout);
+
+/* Hands back the widgets of the microphone slider row, for
+ * microphone.c to wire up: its GtkScale (0..150), the GtkButton around
+ * the row's icon (a click mutes) and the GtkImage inside that button.
+ * Any out-param may be NULL. `content` is the widget returned by
+ * extras_menu_popover_content_new(). Returns FALSE (and sets nothing)
+ * if there is no such row. The widgets stay valid for the lifetime of
+ * `content`, whether the row is currently shown or hidden. */
+gboolean extras_menu_popover_get_microphone(GtkWidget *content,
+                                             GtkWidget **scale,
+                                             GtkWidget **mute_button,
+                                             GtkWidget **icon);
 
 /* Returns the pill widget with this id (one of the EXTRAS_MENU_PILL_*
  * ids from preferences/pill-layout-config.h), or NULL if there is none.

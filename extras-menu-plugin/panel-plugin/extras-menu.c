@@ -135,6 +135,9 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
     extras_menu_airplane_mode_free(plugin->airplane_mode);
     plugin->airplane_mode = NULL;
 
+    extras_menu_microphone_free(plugin->microphone);
+    plugin->microphone = NULL;
+
     if (plugin->slider_layout_listener != 0)
     {
         extras_menu_slider_layout_remove_listener(plugin->slider_layout_listener);
@@ -201,6 +204,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->brightness_scale = NULL;
     plugin->brightness = NULL;
     plugin->updating_brightness_from_backend = FALSE;
+    plugin->microphone = NULL;
     plugin->bluetooth_toggle = NULL;
     plugin->bluetooth_expand_button = NULL;
     plugin->bluetooth_expand_chevron = NULL;
@@ -299,6 +303,15 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
 
     /* --- volume and brightness sliders and their backends --- */
     extras_menu_system_status_attach_sliders(plugin);
+
+    /* --- microphone slider: level, mute click, and its backend. It
+     * finds its own widgets in the content, so it needs no field or
+     * out-param of its own here. --- */
+    GtkWidget *mic_scale = NULL;
+    GtkWidget *mic_button = NULL;
+    GtkWidget *mic_icon = NULL;
+    if (extras_menu_popover_get_microphone(content, &mic_scale, &mic_button, &mic_icon))
+        plugin->microphone = extras_menu_microphone_new(mic_scale, mic_button, mic_icon);
 
     /* --- Bluetooth pill and device list, and their backend --- */
     extras_menu_bluetooth_ui_attach(plugin);

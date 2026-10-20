@@ -385,7 +385,7 @@ extras_menu_slider_layout_page_new(void)
     gtk_box_pack_start(GTK_BOX(page), heading, FALSE, FALSE, 0);
 
     GtkWidget *description = gtk_label_new(
-        "The long sliders at the top of the menu (volume, brightness), in "
+        "The long sliders at the top of the menu (volume, brightness, microphone), in "
         "the order they appear there. Use the arrows to move one up or "
         "down, remove the ones you don't want, and bring them back with "
         "Add slider. Changes apply immediately.");
@@ -400,7 +400,7 @@ extras_menu_slider_layout_page_new(void)
         gtk_box_pack_start(GTK_BOX(rows), build_row(st, i), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(page), rows, FALSE, FALSE, 0);
 
-    st->empty_label = gtk_label_new("No sliders -- the menu will show no volume or brightness bar.");
+    st->empty_label = gtk_label_new("No sliders -- the menu will show no volume, brightness or microphone bar.");
     gtk_label_set_xalign(GTK_LABEL(st->empty_label), 0.0);
     gtk_widget_set_no_show_all(st->empty_label, TRUE); /* refresh() decides */
     gtk_box_pack_start(GTK_BOX(page), st->empty_label, FALSE, FALSE, 0);
