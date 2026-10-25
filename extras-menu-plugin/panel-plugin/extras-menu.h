@@ -243,6 +243,19 @@ struct _ExtrasMenuPlugin
      * would then read the wrong memory. Appended here, the older
      * offsets stay valid. */
     ExtrasMenuMicrophone *microphone;
+
+    /* Bottom-panel behaviour of the dropdown (dropdown.c). With a panel
+     * at the bottom of the screen the dropdown opens upward, so its
+     * BOTTOM edge must stay next to the panel button even when a list
+     * (Wi-Fi/Bluetooth) opens and the window grows. While
+     * dropdown_anchored_bottom is TRUE, dropdown_anchor_bottom is the
+     * screen Y of that bottom edge, and the window is moved up by
+     * however much it grows. FALSE for every other panel position, where
+     * the window opens downward and simply grows downward.
+     *
+     * Same rule as above: new fields go at the END of the struct. */
+    gboolean dropdown_anchored_bottom;
+    gint dropdown_anchor_bottom;
 };
 
 struct _ExtrasMenuPluginClass

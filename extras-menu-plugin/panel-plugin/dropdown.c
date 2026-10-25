@@ -174,9 +174,19 @@ position_dropdown_below_button(ExtrasMenuPlugin *plugin)
 
     gint y;
     if (xfce_screen_position_is_bottom(screen_position))
-        y = origin_y + button_alloc.y - natural_size.height;
+    {
+        /* The bottom edge is what stays put: remember it, so that
+         * on_dropdown_size_allocate() can keep it there while a list
+         * opens or closes and the window changes height. */
+        plugin->dropdown_anchor_bottom = origin_y + button_alloc.y;
+        plugin->dropdown_anchored_bottom = TRUE;
+        y = plugin->dropdown_anchor_bottom - natural_size.height;
+    }
     else
+    {
+        plugin->dropdown_anchored_bottom = FALSE;
         y = origin_y + button_alloc.y + button_alloc.height;
+    }
 
     /* Keep the dropdown fully on-screen horizontally: centering can
      * push it past either edge for buttons near the left or right end
@@ -193,6 +203,50 @@ position_dropdown_below_button(ExtrasMenuPlugin *plugin)
         x = monitor_geom.x + monitor_geom.width - natural_size.width;
 
     gtk_window_move(GTK_WINDOW(plugin->popover), x, y);
+}
+
+/* With a bottom panel the dropdown grows upward: when the Wi-Fi or
+ * Bluetooth list opens (or closes) the window changes height, and GTK
+ * keeps its top-left corner where it was -- so it would grow downward,
+ * over the panel. Instead, every time the window gets a new size, put
+ * its top edge at (anchored bottom edge - height). The revealers
+ * animate, so this runs on every frame of the animation and the window
+ * slides up (or back down) smoothly with the list.
+ *
+ * Does nothing for other panel positions, or before the window has been
+ * positioned (dropdown_anchored_bottom is FALSE then). */
+static void
+on_dropdown_size_allocate(GtkWidget *widget, GdkRectangle *allocation,
+                          ExtrasMenuPlugin *plugin)
+{
+    if (!plugin->dropdown_anchored_bottom || !gtk_widget_get_visible(widget))
+        return;
+
+    gint x = 0, y = 0;
+    gtk_window_get_position(GTK_WINDOW(widget), &x, &y);
+
+    gint new_y = plugin->dropdown_anchor_bottom - allocation->height;
+
+    /* A very tall list must not push the top of the dropdown off the
+     * top of the screen. */
+    GdkWindow *window = gtk_widget_get_window(widget);
+    if (window != NULL)
+    {
+        GdkMonitor *monitor =
+            gdk_display_get_monitor_at_window(gtk_widget_get_display(widget), window);
+        if (monitor != NULL)
+        {
+            GdkRectangle monitor_geom;
+            gdk_monitor_get_geometry(monitor, &monitor_geom);
+            if (new_y < monitor_geom.y)
+                new_y = monitor_geom.y;
+        }
+    }
+
+    /* The comparison also stops the move from re-triggering itself:
+     * moving the window doesn't change its size, but be safe. */
+    if (new_y != y)
+        gtk_window_move(GTK_WINDOW(widget), x, new_y);
 }
 
 /* Toggle the dropdown open/closed when the panel button is clicked.
@@ -225,6 +279,12 @@ on_dropdown_hidden(GtkWidget *widget, ExtrasMenuPlugin *plugin)
 {
     (void) widget;
     release_dropdown_input(plugin);
+
+    /* Collapsing the lists below changes the window's size; with no
+     * anchor, that can't move a window that is no longer shown. It is
+     * set again by position_dropdown_below_button() on the next open. */
+    plugin->dropdown_anchored_bottom = FALSE;
+
     extras_menu_network_ui_set_list_open(plugin, FALSE);
     extras_menu_bluetooth_ui_set_list_open(plugin, FALSE);
 }
@@ -377,6 +437,11 @@ extras_menu_dropdown_create(ExtrasMenuPlugin *plugin)
                       G_CALLBACK(on_dropdown_focus_out), plugin);
     g_signal_connect(plugin->popover, "hide",
                       G_CALLBACK(on_dropdown_hidden), plugin);
+
+    /* Bottom panel: keep the dropdown's bottom edge next to the button
+     * while lists open and close. See on_dropdown_size_allocate(). */
+    g_signal_connect(plugin->popover, "size-allocate",
+                      G_CALLBACK(on_dropdown_size_allocate), plugin);
 
     /* Click-away-to-close: grab the pointer once mapped, and close on
      * any click outside the window. See grab_dropdown_input(). */

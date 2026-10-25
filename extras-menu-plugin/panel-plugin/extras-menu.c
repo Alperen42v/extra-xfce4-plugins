@@ -244,6 +244,8 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->pending_connect_prompting = FALSE;
     plugin->updating_wifi_enabled_from_backend = FALSE;
     plugin->open_dialog_count = 0;
+    plugin->dropdown_anchored_bottom = FALSE;
+    plugin->dropdown_anchor_bottom = 0;
 }
 
 static void
