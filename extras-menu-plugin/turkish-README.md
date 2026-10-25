@@ -17,21 +17,24 @@ geçiş düğmeleri.
 ### Arch Linux
 
 ```bash
-sudo pacman -S brightnessctl --needed
+sudo pacman -S brightnessctl power-profiles-daemon --needed
 ```
 
 ### Debian / Ubuntu
 
 ```bash
-sudo apt install brightnessctl
+sudo apt install power-profiles-daemon brightnessctl
 ```
 
 ### Fedora
 
 ```bash
-sudo dnf install brightnessctl
+sudo dnf install power-profiles-daemon brightnessctl
 ```
-
+## Son dokunuş
+### Systemd
+```bash
+sudo systemctl enable --now power-profiles-daemon
 ## Derleme ve kurulum
 
 ```bash

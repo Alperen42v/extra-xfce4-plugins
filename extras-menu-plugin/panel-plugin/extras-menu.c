@@ -138,6 +138,9 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
     extras_menu_microphone_free(plugin->microphone);
     plugin->microphone = NULL;
 
+    extras_menu_power_profile_free(plugin->power_profile);
+    plugin->power_profile = NULL;
+
     if (plugin->slider_layout_listener != 0)
     {
         extras_menu_slider_layout_remove_listener(plugin->slider_layout_listener);
@@ -246,6 +249,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->open_dialog_count = 0;
     plugin->dropdown_anchored_bottom = FALSE;
     plugin->dropdown_anchor_bottom = 0;
+    plugin->power_profile = NULL;
 }
 
 static void
@@ -344,6 +348,13 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                                                          plugin->bluetooth_last_powered);
         }
     }
+
+    /* --- Balanced pill: shows and cycles the power profile. It talks to
+     * power-profiles-daemon on its own, so it needs nothing from the
+     * backends above. --- */
+    GtkWidget *balanced_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_BALANCED);
+    if (balanced_pill != NULL)
+        plugin->power_profile = extras_menu_power_profile_new(balanced_pill);
 
     g_signal_connect(panel_plugin, "free-data",
                       G_CALLBACK(on_plugin_free_data), plugin);

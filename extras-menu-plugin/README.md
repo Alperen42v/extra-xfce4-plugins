@@ -17,21 +17,25 @@ It is currently in the alpha phase, and the working buttons are Wifi/ethernet, b
 ### Arch Linux
 
 ```bash
-sudo pacman -S brightnessctl --needed
+sudo pacman -S brightnessctl power-profiles-daemon --needed
 ````
 
 ### Debian / Ubuntu
 
 ```bash
-sudo apt install brightnessctl
+sudo apt install power-profiles-daemon brightnessctl
 ```
 
 ### Fedora
 
 ```bash
-sudo dnf install brightnessctl
+sudo dnf install power-profiles-daemon brightnessctl
 ```
-
+## Final Touches
+### Systemd
+```bash
+sudo systemctl enable --now power-profiles-daemon
+```
 ## Build and Installation
 
 ```bash

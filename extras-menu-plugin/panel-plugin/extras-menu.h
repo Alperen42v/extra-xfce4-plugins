@@ -11,6 +11,7 @@
 #include "microphone.h"
 #include "network/network.h"
 #include "pills/airplane-mode.h"
+#include "pills/power-profile.h"
 
 G_BEGIN_DECLS
 
@@ -256,6 +257,14 @@ struct _ExtrasMenuPlugin
      * Same rule as above: new fields go at the END of the struct. */
     gboolean dropdown_anchored_bottom;
     gint dropdown_anchor_bottom;
+
+    /* The Balanced pill's logic (pills/power-profile.c): shows and
+     * switches the power profile through power-profiles-daemon. Owns its
+     * own state and holds on to the pill's widgets itself, so this one
+     * pointer is all that is needed here. NULL if the pill widget wasn't
+     * found. Appended last, like the fields above (see the note at
+     * `microphone`). */
+    ExtrasMenuPowerProfile *power_profile;
 };
 
 struct _ExtrasMenuPluginClass
