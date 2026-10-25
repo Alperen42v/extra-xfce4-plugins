@@ -176,7 +176,7 @@ position_dropdown_below_button(ExtrasMenuPlugin *plugin)
     if (xfce_screen_position_is_bottom(screen_position))
     {
         /* The bottom edge is what stays put: remember it, so that
-         * on_dropdown_size_allocate() can keep it there while a list
+         * on_dropdown_check_resize() can keep it there while a list
          * opens or closes and the window changes height. */
         plugin->dropdown_anchor_bottom = origin_y + button_alloc.y;
         plugin->dropdown_anchored_bottom = TRUE;
@@ -208,24 +208,35 @@ position_dropdown_below_button(ExtrasMenuPlugin *plugin)
 /* With a bottom panel the dropdown grows upward: when the Wi-Fi or
  * Bluetooth list opens (or closes) the window changes height, and GTK
  * keeps its top-left corner where it was -- so it would grow downward,
- * over the panel. Instead, every time the window gets a new size, put
- * its top edge at (anchored bottom edge - height). The revealers
- * animate, so this runs on every frame of the animation and the window
- * slides up (or back down) smoothly with the list.
+ * over the panel. Instead the window's top edge is kept at
+ * (anchored bottom edge - height). The revealers animate, so this
+ * happens on every frame of the animation and the window slides up (or
+ * back down) smoothly with the list.
  *
- * Does nothing for other panel positions, or before the window has been
- * positioned (dropdown_anchored_bottom is FALSE then). */
-static void
-on_dropdown_size_allocate(GtkWidget *widget, GdkRectangle *allocation,
-                          ExtrasMenuPlugin *plugin)
-{
-    if (!plugin->dropdown_anchored_bottom || !gtk_widget_get_visible(widget))
-        return;
+ * ORDER MATTERS, or the window flickers. GTK resizes the window with
+ * its top-left corner fixed, and only learns that the resize happened
+ * when the X server's answer comes back; moving the window at that
+ * point (in "size-allocate") leaves a gap, one round trip long, in which
+ * the compositor can draw the window at its new size but still at the
+ * old position. So the move is made first, in "check-resize": that runs
+ * right before GTK sends its resize request, so both requests go out
+ * together and the window never exists at a wrong position. For that the
+ * new height has to be known beforehand; it is asked from the widgets,
+ * the same way GTK is about to do. "size-allocate" stays as a safety net
+ * that corrects the position if that prediction was ever off by a pixel.
+ *
+ * None of this does anything for other panel positions, or before the
+ * window has been positioned (dropdown_anchored_bottom is FALSE then). */
 
+/* Puts the dropdown's top edge where a window `height` pixels tall
+ * must start for its bottom edge to sit on the anchor. */
+static void
+move_dropdown_to_anchor(ExtrasMenuPlugin *plugin, GtkWidget *widget, gint height)
+{
     gint x = 0, y = 0;
     gtk_window_get_position(GTK_WINDOW(widget), &x, &y);
 
-    gint new_y = plugin->dropdown_anchor_bottom - allocation->height;
+    gint new_y = plugin->dropdown_anchor_bottom - height;
 
     /* A very tall list must not push the top of the dropdown off the
      * top of the screen. */
@@ -243,10 +254,44 @@ on_dropdown_size_allocate(GtkWidget *widget, GdkRectangle *allocation,
         }
     }
 
-    /* The comparison also stops the move from re-triggering itself:
-     * moving the window doesn't change its size, but be safe. */
     if (new_y != y)
         gtk_window_move(GTK_WINDOW(widget), x, new_y);
+}
+
+/* Runs just before GTK resizes the window (a "check-resize" handler
+ * connected normally runs before the window's own, which is what sends
+ * the resize request). If the window is about to change height, move it
+ * to where the new height needs it to be. */
+static void
+on_dropdown_check_resize(GtkContainer *container, ExtrasMenuPlugin *plugin)
+{
+    GtkWidget *widget = GTK_WIDGET(container);
+
+    if (!plugin->dropdown_anchored_bottom || !gtk_widget_get_mapped(widget))
+        return;
+
+    gint width = gtk_widget_get_allocated_width(widget);
+    gint current_height = gtk_widget_get_allocated_height(widget);
+    gint new_height = current_height;
+
+    gtk_widget_get_preferred_height_for_width(widget, width, NULL, &new_height);
+
+    if (new_height != current_height)
+        move_dropdown_to_anchor(plugin, widget, new_height);
+}
+
+/* Safety net: after the resize has really happened, make sure the
+ * window sits where its actual height needs it to. Normally the move
+ * made by on_dropdown_check_resize() already put it there and this does
+ * nothing. */
+static void
+on_dropdown_size_allocate(GtkWidget *widget, GdkRectangle *allocation,
+                          ExtrasMenuPlugin *plugin)
+{
+    if (!plugin->dropdown_anchored_bottom || !gtk_widget_get_visible(widget))
+        return;
+
+    move_dropdown_to_anchor(plugin, widget, allocation->height);
 }
 
 /* Toggle the dropdown open/closed when the panel button is clicked.
@@ -439,7 +484,9 @@ extras_menu_dropdown_create(ExtrasMenuPlugin *plugin)
                       G_CALLBACK(on_dropdown_hidden), plugin);
 
     /* Bottom panel: keep the dropdown's bottom edge next to the button
-     * while lists open and close. See on_dropdown_size_allocate(). */
+     * while lists open and close. See on_dropdown_check_resize(). */
+    g_signal_connect(plugin->popover, "check-resize",
+                      G_CALLBACK(on_dropdown_check_resize), plugin);
     g_signal_connect(plugin->popover, "size-allocate",
                       G_CALLBACK(on_dropdown_size_allocate), plugin);
 
