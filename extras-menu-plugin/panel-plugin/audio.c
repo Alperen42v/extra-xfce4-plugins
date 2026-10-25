@@ -18,6 +18,10 @@ struct _ExtrasMenuAudio
      * rejects a cvolume whose channel count doesn't match the sink's. */
     guint8 default_sink_channels;
 
+    /* Whether the default sink was muted the last time we heard from the
+     * server, so a "toggle mute" request knows which way to flip. */
+    gboolean muted;
+
     ExtrasMenuAudioChangedFunc callback;
     gpointer user_data;
 };
@@ -67,6 +71,7 @@ on_sink_info(pa_context *context, const pa_sink_info *info, int eol,
         return;
 
     audio->default_sink_channels = info->volume.channels;
+    audio->muted = info->mute ? TRUE : FALSE;
     emit_sink_state(audio, info);
 }
 
@@ -212,6 +217,21 @@ extras_menu_audio_set_volume(ExtrasMenuAudio *audio, guint percent)
 
     pa_operation *op = pa_context_set_sink_volume_by_name(
         audio->context, audio->default_sink_name, &cvolume, NULL, NULL);
+    if (op != NULL)
+        pa_operation_unref(op);
+}
+
+void
+extras_menu_audio_toggle_mute(ExtrasMenuAudio *audio)
+{
+    if (audio == NULL || audio->context == NULL || audio->default_sink_name == NULL)
+        return;
+
+    if (pa_context_get_state(audio->context) != PA_CONTEXT_READY)
+        return;
+
+    pa_operation *op = pa_context_set_sink_mute_by_name(
+        audio->context, audio->default_sink_name, audio->muted ? 0 : 1, NULL, NULL);
     if (op != NULL)
         pa_operation_unref(op);
 }

@@ -17,7 +17,7 @@ static const ExtrasMenuPillInfo pills[] = {
     { EXTRAS_MENU_PILL_BLUETOOTH, "Bluetooth",        "bluetooth-symbolic",
       "Turns Bluetooth on or off; the arrow lists devices." },
     { EXTRAS_MENU_PILL_BALANCED,  "Balanced",         "weather-clear-symbolic",
-      "Not functional yet -- only shown for layout." },
+      "Shows the power profile; click to switch between Power Saver, Balanced and Performance." },
     { EXTRAS_MENU_PILL_DARK_MODE, "Dark Mode",        "weather-clear-night-symbolic",
       "Not functional yet -- only shown for layout." },
     { EXTRAS_MENU_PILL_AIRPLANE,  "Airplane Mode",   "airplane-mode-symbolic",

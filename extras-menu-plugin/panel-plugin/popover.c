@@ -56,11 +56,11 @@ static const gchar *EXTRAS_MENU_CSS =
     "  border-radius: 14px;"
     "  padding: 8px 14px;"
     "}"
-    /* Microphone row: its icon is a button (click = mute), made to
-     * look and measure exactly like the plain icon of the other rows
-     * so the three sliders still line up. The thin marks under the
-     * scale (at 40% and 100%) are kept to one hairline each. */
-    ".extras-menu-mic-button {"
+    /* Microphone and volume rows: the icon is a button (click = mute),
+     * made to look and measure exactly like the plain icon of the other
+     * rows so the sliders still line up. The thin marks under the
+     * microphone's scale (at 40% and 100%) are kept to one hairline each. */
+    ".extras-menu-mic-button, .extras-menu-row-icon-button {"
     "  padding: 0;"
     "  min-width: 0;"
     "  min-height: 0;"
@@ -452,9 +452,14 @@ extras_menu_make_top_bar(GtkWidget **out_battery_label,
  * via out_scale so the caller can wire it up to a real backend.
  * out_icon (optional) hands back the icon GtkImage too, so callers
  * that want to swap it dynamically (e.g. volume -> muted icon at 0%)
- * can do so without having to dig through the row's children. */
+ * can do so without having to dig through the row's children.
+ * With icon_clickable the icon sits inside a flat button, looking just
+ * like the plain icon; the button is the icon's parent, so a caller that
+ * wants to react to clicks (volume: mute) finds it with
+ * gtk_widget_get_parent() on the icon it got from out_icon. */
 static GtkWidget *
-extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWidget **out_icon)
+extras_menu_make_slider_row(const gchar *icon_name, gboolean icon_clickable,
+                             GtkWidget **out_scale, GtkWidget **out_icon)
 {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     extras_menu_apply_css(row);
@@ -467,7 +472,21 @@ extras_menu_make_slider_row(const gchar *icon_name, GtkWidget **out_scale, GtkWi
     gtk_range_set_value(GTK_RANGE(scale), 0);
     gtk_widget_set_hexpand(scale, TRUE);
 
-    gtk_box_pack_start(GTK_BOX(row), icon, FALSE, FALSE, 0);
+    if (icon_clickable)
+    {
+        GtkWidget *button = gtk_button_new();
+        gtk_button_set_relief(GTK_BUTTON(button), GTK_RELIEF_NONE);
+        gtk_widget_set_focus_on_click(button, FALSE);
+        gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
+        gtk_style_context_add_class(gtk_widget_get_style_context(button),
+                                     "extras-menu-row-icon-button");
+        gtk_container_add(GTK_CONTAINER(button), icon);
+        gtk_box_pack_start(GTK_BOX(row), button, FALSE, FALSE, 0);
+    }
+    else
+    {
+        gtk_box_pack_start(GTK_BOX(row), icon, FALSE, FALSE, 0);
+    }
     gtk_box_pack_start(GTK_BOX(row), scale, TRUE, TRUE, 0);
 
     if (out_scale != NULL)
@@ -824,7 +843,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
 
     GtkWidget *vol_scale = NULL;
     GtkWidget *vol_icon = NULL;
-    GtkWidget *vol_row = extras_menu_make_slider_row("audio-volume-high-symbolic",
+    GtkWidget *vol_row = extras_menu_make_slider_row("audio-volume-high-symbolic", TRUE,
                                                       &vol_scale, &vol_icon);
     if (volume_scale != NULL)
         *volume_scale = vol_scale;
@@ -832,7 +851,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
         *volume_icon = vol_icon;
 
     GtkWidget *bright_scale = NULL;
-    GtkWidget *bright_row = extras_menu_make_slider_row("display-brightness-symbolic",
+    GtkWidget *bright_row = extras_menu_make_slider_row("display-brightness-symbolic", FALSE,
                                                          &bright_scale, NULL);
     if (brightness_scale != NULL)
         *brightness_scale = bright_scale;

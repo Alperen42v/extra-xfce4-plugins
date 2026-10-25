@@ -39,6 +39,14 @@ ExtrasMenuAudio *extras_menu_audio_new(ExtrasMenuAudioChangedFunc callback,
  * fully established -- the request is just dropped in that case. */
 void extras_menu_audio_set_volume(ExtrasMenuAudio *audio, guint percent);
 
+/* Mutes the default sink if it is not muted, unmutes it if it is.
+ * Fire-and-forget like extras_menu_audio_set_volume(): the new state
+ * comes back through the ExtrasMenuAudioChangedFunc callback (the
+ * server announces mute changes like any other sink change), and the
+ * request is dropped if the connection isn't ready yet. The volume level
+ * itself is left alone, so unmuting brings back the same level. */
+void extras_menu_audio_toggle_mute(ExtrasMenuAudio *audio);
+
 /* Disconnects and frees everything. */
 void extras_menu_audio_free(ExtrasMenuAudio *audio);
 

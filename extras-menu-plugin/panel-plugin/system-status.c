@@ -194,6 +194,18 @@ extras_menu_system_status_attach_battery(ExtrasMenuPlugin *plugin)
     plugin->battery = extras_menu_battery_new(on_battery_changed, plugin);
 }
 
+/* The flat button around the volume row's icon (a click mutes), or NULL.
+ * popover.c puts the icon inside it, so it is the icon's parent. */
+static GtkWidget *
+volume_mute_button(ExtrasMenuPlugin *plugin)
+{
+    if (plugin->volume_icon == NULL)
+        return NULL;
+
+    GtkWidget *parent = gtk_widget_get_parent(plugin->volume_icon);
+    return (parent != NULL && GTK_IS_BUTTON(parent)) ? parent : NULL;
+}
+
 /* Called by the audio backend on connect and on every subsequent
  * volume/mute change, whether we caused it or something else did
  * (pavucontrol, media keys, ...). Updates the slider to match. */
@@ -225,6 +237,11 @@ on_audio_changed(guint volume_percent, gboolean muted, gpointer user_data)
                                       volume_icon_name(volume_percent, muted),
                                       GTK_ICON_SIZE_BUTTON);
     }
+
+    /* The icon is the mute button: its tooltip says what a click does. */
+    GtkWidget *mute_button = volume_mute_button(plugin);
+    if (mute_button != NULL)
+        gtk_widget_set_tooltip_text(mute_button, muted ? "Unmute" : "Mute");
 }
 
 /* Called when the user drags the slider (or otherwise changes its
@@ -238,6 +255,16 @@ on_volume_scale_changed(GtkRange *range, ExtrasMenuPlugin *plugin)
 
     guint percent = (guint) gtk_range_get_value(range);
     extras_menu_audio_set_volume(plugin->audio, percent);
+}
+
+/* The user clicked the volume icon: mute, or unmute if already muted.
+ * The new state comes back through on_audio_changed() like any other
+ * change, which is what updates the icons. */
+static void
+on_volume_mute_clicked(GtkButton *button, ExtrasMenuPlugin *plugin)
+{
+    (void) button;
+    extras_menu_audio_toggle_mute(plugin->audio);
 }
 
 /* Same idea as on_audio_changed(), but for screen brightness via
@@ -281,6 +308,14 @@ extras_menu_system_status_attach_sliders(ExtrasMenuPlugin *plugin)
     {
         g_signal_connect(plugin->volume_scale, "value-changed",
                           G_CALLBACK(on_volume_scale_changed), plugin);
+    }
+
+    GtkWidget *mute_button = volume_mute_button(plugin);
+    if (mute_button != NULL)
+    {
+        gtk_widget_set_tooltip_text(mute_button, "Mute");
+        g_signal_connect(mute_button, "clicked",
+                          G_CALLBACK(on_volume_mute_clicked), plugin);
     }
 
     /* --- brightness backend: reads the current value async on start,

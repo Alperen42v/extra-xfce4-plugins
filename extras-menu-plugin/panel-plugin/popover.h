@@ -32,7 +32,9 @@ G_BEGIN_DECLS
  * brightness) -- both to push user-driven changes out, and to reflect
  * external changes back in. volume_icon hands back the volume row's
  * icon GtkImage, so the caller can swap it to a "muted" icon at
- * 0%/when muted.
+ * 0%/when muted. That image sits inside a flat button (its parent
+ * widget) meant to mute the volume when clicked, the same way the
+ * microphone row's icon does.
  *
  * The Bluetooth pill is a split pill like the network one: bluetooth_toggle
  * is its main GtkToggleButton (adapter on/off), bluetooth_expand_button
@@ -67,9 +69,11 @@ G_BEGIN_DECLS
  * ready to be populated with one row per visible access point. Any
  * out-param may be NULL if the caller doesn't need that handle.
  *
- * The rest of the pill grid (Dark Mode/Aeroplane Mode/Balanced/...)
- * remains purely visual for now; only the sliders, the Bluetooth
- * toggle, and the network pill are backend-aware at this stage.
+ * The pills are built here but wired up elsewhere: the Bluetooth and
+ * network pills through the out-params above, the others (Aeroplane
+ * Mode, Balanced) by their modules in pills/, which find their pill
+ * with extras_menu_popover_get_pill(). The remaining ones (Quality,
+ * Dark Mode) are still purely visual for now.
  */
 GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
                                             GtkWidget **battery_icon,
