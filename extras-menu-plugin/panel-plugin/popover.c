@@ -108,6 +108,22 @@ static const gchar *EXTRAS_MENU_CSS =
     "  border-radius: 12px;"
     "  background-color: @theme_bg_color;"
     "}"
+    /* The Wi-Fi and Bluetooth lists: a panel 30% darker than the
+     * dropdown's own background, so the lists read as a separate area
+     * under the pills. shade(color, 0.7) darkens by 30% and follows the
+     * theme (light or dark), so nothing is hardcoded. A GtkListBox
+     * paints its own background by default, which would cover this one,
+     * so it is made transparent. The rows are left alone, so their
+     * hover and press feedback still works. (Both need the stylesheet
+     * applied to them directly: a provider doesn't reach child widgets,
+     * see extras_menu_apply_css().) */
+    ".extras-menu-list {"
+    "  border-radius: 14px;"
+    "  background-color: shade(@theme_bg_color, 0.7);"
+    "}"
+    ".extras-menu-list-box {"
+    "  background: none;"
+    "}"
     /* Split pill (network toggle + expand chevron): the outer box just
      * clips its two children into one pill-shaped silhouette. The
      * children's own halves of the border-radius (below) create the
@@ -564,7 +580,8 @@ extras_menu_make_microphone_row(GtkWidget **out_scale, GtkWidget **out_button,
  * width rather than part of the two-column grid, since a list of names
  * doesn't fit that layout. Starts collapsed; the caller decides when to
  * reveal it. out_list_box (optional) hands back the GtkListBox inside,
- * ready to be filled with rows. */
+ * ready to be filled with rows. The list sits on a darker panel (see
+ * .extras-menu-list in the CSS above). */
 static GtkWidget *
 extras_menu_make_list_revealer(GtkWidget **out_list_box)
 {
@@ -573,6 +590,8 @@ extras_menu_make_list_revealer(GtkWidget **out_list_box)
     gtk_revealer_set_reveal_child(GTK_REVEALER(revealer), FALSE);
 
     GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
+    extras_menu_apply_css(scrolled);
+    gtk_style_context_add_class(gtk_widget_get_style_context(scrolled), "extras-menu-list");
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
                                     GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     /* Cap the list's height so a long result doesn't make the dropdown
@@ -581,6 +600,8 @@ extras_menu_make_list_revealer(GtkWidget **out_list_box)
     gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scrolled), TRUE);
 
     GtkWidget *list_box = gtk_list_box_new();
+    extras_menu_apply_css(list_box);
+    gtk_style_context_add_class(gtk_widget_get_style_context(list_box), "extras-menu-list-box");
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
     gtk_container_add(GTK_CONTAINER(scrolled), list_box);
     gtk_container_add(GTK_CONTAINER(revealer), scrolled);
