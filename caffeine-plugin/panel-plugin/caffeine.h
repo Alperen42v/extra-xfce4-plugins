@@ -98,8 +98,9 @@ typedef struct
      * triggering the Cairo-drawn fallback */
     CaffeineIconSet *icons;
     guint             icon_frame_index; /* which on_frames[] entry is showing now */
-    gint              icon_pixel_size;  /* last size reported via size-changed
-                                          * (or the button's initial request) */
+    gint              panel_size;       /* last size reported by the panel (square, per row) */
+    gint              icon_pixel_size;  /* panel_size minus the button's theme padding/border:
+                                          * the size icons are loaded and drawn at */
 
     /* preferences: self-triggered lock+blank cycle while caffeine is on */
     CaffeineSettings settings;

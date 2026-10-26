@@ -313,8 +313,14 @@ on_icon_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data)
 
     if (frame_to_draw != NULL)
     {
+        /* centered in the real allocation: themes with large button
+         * padding/borders can make it differ from the icon's own size,
+         * and drawing at (0,0) would push the icon off to one side */
+        gint x = (w - gdk_pixbuf_get_width (frame_to_draw)) / 2;
+        gint y = (h - gdk_pixbuf_get_height (frame_to_draw)) / 2;
+
         cairo_save (cr);
-        gdk_cairo_set_source_pixbuf (cr, frame_to_draw, 0, 0);
+        gdk_cairo_set_source_pixbuf (cr, frame_to_draw, x, y);
         cairo_paint (cr);
         cairo_restore (cr);
         return FALSE;
@@ -658,16 +664,65 @@ caffeine_reload_icons (CaffeinePlugin *caffeine)
     gtk_widget_queue_draw (caffeine->icon_area);
 }
 
+/* The icon has to fit INSIDE the button: panel size minus the theme's
+ * padding and border on the button. Giving the icon the full panel size
+ * (as before) makes the button grow past the panel row on themes with
+ * thick button padding, which shifted the icon out of place. */
+static gint
+caffeine_get_icon_size (CaffeinePlugin *caffeine, gint panel_size)
+{
+    GtkStyleContext *context = gtk_widget_get_style_context (caffeine->button);
+    GtkStateFlags    state = gtk_style_context_get_state (context);
+    GtkBorder        padding;
+    GtkBorder        border;
+    gint             extra;
+
+    gtk_style_context_get_padding (context, state, &padding);
+    gtk_style_context_get_border (context, state, &border);
+
+    extra = MAX (padding.left + padding.right + border.left + border.right,
+                 padding.top + padding.bottom + border.top + border.bottom);
+
+    return MAX (8, panel_size - extra);
+}
+
+/* Applies a panel size: pins the whole plugin to a panel_size square
+ * (the button fills it) and reloads the icons if the usable icon size
+ * changed. Also called when the button's theme style changes. */
+static void
+caffeine_apply_panel_size (CaffeinePlugin *caffeine, gint panel_size)
+{
+    gint icon_size = caffeine_get_icon_size (caffeine, panel_size);
+
+    caffeine->panel_size = panel_size;
+    gtk_widget_set_size_request (GTK_WIDGET (caffeine->plugin), panel_size, panel_size);
+
+    if (icon_size == caffeine->icon_pixel_size)
+        return;
+
+    caffeine->icon_pixel_size = icon_size;
+    gtk_widget_set_size_request (caffeine->icon_area, icon_size, icon_size);
+    caffeine_reload_icons (caffeine);
+}
+
 static gboolean
 caffeine_size_changed (XfcePanelPlugin *plugin, gint size, CaffeinePlugin *caffeine)
 {
-    gtk_widget_set_size_request (GTK_WIDGET (caffeine->button), size, size);
-    gtk_widget_set_size_request (caffeine->icon_area, size, size);
-
-    caffeine->icon_pixel_size = size;
-    caffeine_reload_icons (caffeine);
-
+    (void) plugin;
+    caffeine_apply_panel_size (caffeine, size);
     return TRUE;
+}
+
+/* The theme (and so the button's padding) can change at runtime, or only
+ * settle after the button joins the panel - recompute the icon size. */
+static void
+on_button_style_updated (GtkWidget *button, gpointer user_data)
+{
+    CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
+
+    (void) button;
+    if (caffeine->panel_size > 0)
+        caffeine_apply_panel_size (caffeine, caffeine->panel_size);
 }
 
 /* Fires when GTK's "prefer dark theme" setting changes - covers both a
@@ -740,9 +795,10 @@ caffeine_construct (XfcePanelPlugin *plugin)
 
     /* real panel size right away, so icons don't stay blank waiting for
      * the first size-changed signal (some panels delay/skip it) */
-    caffeine->icon_pixel_size = xfce_panel_plugin_get_size (plugin);
-    if (caffeine->icon_pixel_size <= 0)
-        caffeine->icon_pixel_size = 24;
+    caffeine->panel_size = xfce_panel_plugin_get_size (plugin);
+    if (caffeine->panel_size <= 0)
+        caffeine->panel_size = 24;
+    caffeine->icon_pixel_size = 0; /* computed below, once the button exists */
 
     caffeine->icons = NULL;
 
@@ -751,8 +807,13 @@ caffeine_construct (XfcePanelPlugin *plugin)
     gtk_widget_set_focus_on_click (caffeine->button, FALSE);
 
     caffeine->icon_area = gtk_drawing_area_new ();
-    gtk_widget_set_size_request (caffeine->icon_area, caffeine->icon_pixel_size, caffeine->icon_pixel_size);
     gtk_container_add (GTK_CONTAINER (caffeine->button), caffeine->icon_area);
+
+    /* sizes the plugin, button content and icons from the panel size and
+     * the theme's button padding; follows later theme changes too */
+    caffeine_apply_panel_size (caffeine, caffeine->panel_size);
+    g_signal_connect (caffeine->button, "style-updated",
+                       G_CALLBACK (on_button_style_updated), caffeine);
 
     g_signal_connect (caffeine->icon_area, "draw",
                        G_CALLBACK (on_icon_draw), caffeine);
