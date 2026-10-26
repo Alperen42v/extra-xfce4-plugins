@@ -106,7 +106,13 @@ refresh(ExtrasMenuPowerProfile *self)
      * A click flips a toggle button by itself; this is also what puts
      * it back (see on_pill_clicked()). */
     gboolean lit = self->available && g_strcmp0(self->active, "balanced") != 0;
+
+    /* GTK3's gtk_toggle_button_set_active() emits "clicked" too, exactly
+     * as a real click does, so our own handler must not hear this one
+     * (it would switch the profile again). */
+    g_signal_handler_block(self->pill, self->clicked_id);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->pill), lit);
+    g_signal_handler_unblock(self->pill, self->clicked_id);
 
     if (!self->available)
     {

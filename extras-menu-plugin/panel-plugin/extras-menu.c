@@ -126,6 +126,16 @@ on_airplane_mode_changed(gboolean active, gpointer user_data)
     extras_menu_system_status_update_network_icon(EXTRAS_MENU_PLUGIN(user_data));
 }
 
+/* Dark Mode can't switch (a theme has no dark or light version
+ * installed): tell the user, in a dialog that belongs to the dropdown so
+ * that it doesn't close behind it. */
+static void
+on_dark_mode_message(const gchar *primary, const gchar *secondary, gpointer user_data)
+{
+    extras_menu_dropdown_show_message(EXTRAS_MENU_PLUGIN(user_data), GTK_MESSAGE_WARNING,
+                                       primary, secondary);
+}
+
 static void
 on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
@@ -143,6 +153,9 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 
     extras_menu_power_profile_free(plugin->power_profile);
     plugin->power_profile = NULL;
+
+    extras_menu_dark_mode_free(plugin->dark_mode);
+    plugin->dark_mode = NULL;
 
     if (plugin->slider_layout_listener != 0)
     {
@@ -254,6 +267,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->dropdown_anchor_bottom = 0;
     plugin->power_profile = NULL;
     plugin->dropdown_autohide_blocked = FALSE;
+    plugin->dark_mode = NULL;
 }
 
 static void
@@ -359,6 +373,14 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     GtkWidget *balanced_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_BALANCED);
     if (balanced_pill != NULL)
         plugin->power_profile = extras_menu_power_profile_new(balanced_pill);
+
+    /* --- Dark Mode pill: lit while the GTK theme is a dark one, and
+     * switches between the theme's dark and light version. It reads and
+     * writes Xfce's theme setting itself, so it needs nothing from the
+     * backends above. --- */
+    GtkWidget *dark_mode_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_DARK_MODE);
+    if (dark_mode_pill != NULL)
+        plugin->dark_mode = extras_menu_dark_mode_new(dark_mode_pill, on_dark_mode_message, plugin);
 
     g_signal_connect(panel_plugin, "free-data",
                       G_CALLBACK(on_plugin_free_data), plugin);

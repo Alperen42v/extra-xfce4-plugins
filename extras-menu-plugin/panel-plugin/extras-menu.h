@@ -11,6 +11,7 @@
 #include "microphone.h"
 #include "network/network.h"
 #include "pills/airplane-mode.h"
+#include "pills/dark-mode.h"
 #include "pills/power-profile.h"
 
 G_BEGIN_DECLS
@@ -272,6 +273,13 @@ struct _ExtrasMenuPlugin
      * flag is what keeps them paired however the dropdown gets closed.
      * Appended last, like the fields above. */
     gboolean dropdown_autohide_blocked;
+
+    /* The Dark Mode pill's logic (pills/dark-mode.c): shows whether the
+     * GTK theme is a dark one and switches between a theme's dark and
+     * light version. Owns its own state and holds on to the pill itself,
+     * so this one pointer is all that is needed here. NULL if the pill
+     * widget wasn't found. Appended last, like the fields above. */
+    ExtrasMenuDarkMode *dark_mode;
 };
 
 struct _ExtrasMenuPluginClass

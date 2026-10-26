@@ -19,7 +19,7 @@ static const ExtrasMenuPillInfo pills[] = {
     { EXTRAS_MENU_PILL_BALANCED,  "Balanced",         "weather-clear-symbolic",
       "Shows the power profile; click to switch between Power Saver, Balanced and Performance." },
     { EXTRAS_MENU_PILL_DARK_MODE, "Dark Mode",        "weather-clear-night-symbolic",
-      "Not functional yet -- only shown for layout." },
+      "Lit while a dark theme is used; click to switch to the theme's dark or light version." },
     { EXTRAS_MENU_PILL_AIRPLANE,  "Airplane Mode",   "airplane-mode-symbolic",
       "Turns Wi-Fi and Bluetooth off together, and back on again." },
 };

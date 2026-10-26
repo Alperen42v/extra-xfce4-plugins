@@ -6,7 +6,7 @@ PLUGIN_LIBDIR = $(PREFIX)/lib/xfce4/panel/plugins
 DESKTOP_DIR = $(PREFIX)/share/xfce4/panel/plugins
 
 PKG_CONFIG = pkg-config
-PKGS = gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 libxfce4util-1.0 libpulse libpulse-mainloop-glib gio-2.0
+PKGS = gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 libxfce4util-1.0 libxfconf-0 libpulse libpulse-mainloop-glib gio-2.0
 
 CFLAGS += -Wall -Wextra -O2 $(shell $(PKG_CONFIG) --cflags $(PKGS))
 LIBS = $(shell $(PKG_CONFIG) --libs $(PKGS))
