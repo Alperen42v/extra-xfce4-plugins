@@ -314,6 +314,37 @@ on_toggle_button_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
     }
 }
 
+/* Keeps an auto-hiding panel from sliding away while the dropdown is
+ * open, the way other plugins' menus do. The panel counts these
+ * requests, so a second "block" would need a second "unblock" -- the flag
+ * makes sure each one is sent only once, and that the dropdown is never
+ * left holding the panel after it is gone. */
+static void
+set_panel_autohide_blocked(ExtrasMenuPlugin *plugin, gboolean blocked)
+{
+    if (plugin->dropdown_autohide_blocked == blocked)
+        return;
+
+    plugin->dropdown_autohide_blocked = blocked;
+    xfce_panel_plugin_block_autohide(XFCE_PANEL_PLUGIN(plugin), blocked);
+}
+
+/* The dropdown was shown (by any route): hold the panel up. */
+static void
+on_dropdown_shown(GtkWidget *widget, ExtrasMenuPlugin *plugin)
+{
+    (void) widget;
+    set_panel_autohide_blocked(plugin, TRUE);
+}
+
+/* Lets go of the panel again if the dropdown still holds it. For the
+ * plugin's teardown, which can happen with the dropdown open. */
+void
+extras_menu_dropdown_release_panel(ExtrasMenuPlugin *plugin)
+{
+    set_panel_autohide_blocked(plugin, FALSE);
+}
+
 /* The dropdown was hidden (by any route: clicking away, the panel button,
  * a quick action). Both lists are collapsed so the dropdown always
  * opens in its compact form next time, instead of coming back with a
@@ -324,6 +355,9 @@ on_dropdown_hidden(GtkWidget *widget, ExtrasMenuPlugin *plugin)
 {
     (void) widget;
     release_dropdown_input(plugin);
+
+    /* Nothing is holding the panel up any more: it may hide again. */
+    set_panel_autohide_blocked(plugin, FALSE);
 
     /* Collapsing the lists below changes the window's size; with no
      * anchor, that can't move a window that is no longer shown. It is
@@ -480,6 +514,8 @@ extras_menu_dropdown_create(ExtrasMenuPlugin *plugin)
                       G_CALLBACK(on_toggle_button_clicked), plugin);
     g_signal_connect(plugin->popover, "focus-out-event",
                       G_CALLBACK(on_dropdown_focus_out), plugin);
+    g_signal_connect(plugin->popover, "show",
+                      G_CALLBACK(on_dropdown_shown), plugin);
     g_signal_connect(plugin->popover, "hide",
                       G_CALLBACK(on_dropdown_hidden), plugin);
 

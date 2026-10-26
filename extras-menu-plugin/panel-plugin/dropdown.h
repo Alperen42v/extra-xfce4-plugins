@@ -12,6 +12,12 @@ G_BEGIN_DECLS
  * caller adds the window's content afterwards. */
 void extras_menu_dropdown_create(ExtrasMenuPlugin *plugin);
 
+/* While the dropdown is open it holds an auto-hiding panel up (like other
+ * plugins' menus do); closing it lets go again by itself. This lets go
+ * early, for when the plugin is torn down with the dropdown still open.
+ * Does nothing if it isn't holding the panel. */
+void extras_menu_dropdown_release_panel(ExtrasMenuPlugin *plugin);
+
 /* Hides the dropdown and resets the panel button to match. Takes a
  * gpointer (the ExtrasMenuPlugin) so it can be handed to
  * extras_menu_quick_actions_attach() as its close callback. */

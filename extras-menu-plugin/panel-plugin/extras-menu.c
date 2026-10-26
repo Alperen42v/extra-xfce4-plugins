@@ -131,6 +131,9 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
     (void) panel_plugin;
 
+    /* The dropdown may still be open: don't leave the panel held up. */
+    extras_menu_dropdown_release_panel(plugin);
+
     /* Before the backends it switches go away. */
     extras_menu_airplane_mode_free(plugin->airplane_mode);
     plugin->airplane_mode = NULL;
@@ -250,6 +253,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->dropdown_anchored_bottom = FALSE;
     plugin->dropdown_anchor_bottom = 0;
     plugin->power_profile = NULL;
+    plugin->dropdown_autohide_blocked = FALSE;
 }
 
 static void

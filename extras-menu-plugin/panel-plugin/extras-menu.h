@@ -265,6 +265,13 @@ struct _ExtrasMenuPlugin
      * found. Appended last, like the fields above (see the note at
      * `microphone`). */
     ExtrasMenuPowerProfile *power_profile;
+
+    /* TRUE while this plugin is holding the panel's autohide off because
+     * the dropdown is open (dropdown.c). The panel counts these requests,
+     * so every "block" must be matched by exactly one "unblock"; this
+     * flag is what keeps them paired however the dropdown gets closed.
+     * Appended last, like the fields above. */
+    gboolean dropdown_autohide_blocked;
 };
 
 struct _ExtrasMenuPluginClass
