@@ -1,5 +1,6 @@
 #include "extras-menu.h"
 #include "dropdown.h"
+#include "dropdown-style.h"
 #include "system-status.h"
 #include "popover.h"
 #include "preferences/preferences.h"
@@ -141,6 +142,8 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
     (void) panel_plugin;
 
+    extras_menu_dropdown_style_free(plugin);
+
     /* The dropdown may still be open: don't leave the panel held up. */
     extras_menu_dropdown_release_panel(plugin);
 
@@ -268,6 +271,7 @@ extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
     plugin->power_profile = NULL;
     plugin->dropdown_autohide_blocked = FALSE;
     plugin->dark_mode = NULL;
+    plugin->dropdown_style = NULL;
 }
 
 static void
@@ -302,6 +306,10 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
                                                            &plugin->network_revealer,
                                                            &plugin->network_list_box);
     gtk_container_add(GTK_CONTAINER(plugin->popover), content);
+
+    /* The dropdown's background: the panel's own color and transparency.
+     * Needs the content and its two lists, so only now. */
+    extras_menu_dropdown_style_attach(plugin);
 
     /* --- battery badge and backend --- */
     extras_menu_system_status_attach_battery(plugin);

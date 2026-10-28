@@ -37,9 +37,12 @@
  * fully transparent -- previously masked only by the window's own
  * (opaque, square-cornered) background, which is why removing that to
  * fix the black-corners issue made the whole dropdown transparent.
- * @theme_bg_color is the standard GTK3 symbolic color themes use for
- * this kind of surface (menus, popovers), so this still respects
- * whatever theme is active rather than hardcoding a specific color.
+ * The color itself is NOT set here: it is the panel's own background
+ * (color and transparency), which dropdown-style.c reads from the panel
+ * and gives to .extras-menu-popover and .extras-menu-list through a
+ * stylesheet of its own. Until it has done so the box would be
+ * transparent, so dropdown-style.c is attached as soon as the content
+ * exists.
  */
 static const gchar *EXTRAS_MENU_CSS =
     ".extras-menu-pill {"
@@ -103,23 +106,21 @@ static const gchar *EXTRAS_MENU_CSS =
     "  min-width: 16px;"
     "  min-height: 16px;"
     "}"
+    /* (background-color comes from dropdown-style.c, see above) */
     ".extras-menu-popover {"
     "  padding: 10px;"
     "  border-radius: 12px;"
-    "  background-color: @theme_bg_color;"
     "}"
-    /* The Wi-Fi and Bluetooth lists: a panel 30% darker than the
-     * dropdown's own background, so the lists read as a separate area
-     * under the pills. shade(color, 0.7) darkens by 30% and follows the
-     * theme (light or dark), so nothing is hardcoded. A GtkListBox
-     * paints its own background by default, which would cover this one,
-     * so it is made transparent. The rows are left alone, so their
-     * hover and press feedback still works. (Both need the stylesheet
-     * applied to them directly: a provider doesn't reach child widgets,
-     * see extras_menu_apply_css().) */
+    /* The Wi-Fi and Bluetooth lists sit on a panel 30% darker than the
+     * dropdown's own background (set by dropdown-style.c as
+     * shade(background, 0.7)), so the lists read as a separate area
+     * under the pills. A GtkListBox paints its own background by
+     * default, which would cover that one, so it is made transparent.
+     * The rows are left alone, so their hover and press feedback still
+     * works. (Both need the stylesheet applied to them directly: a
+     * provider doesn't reach child widgets, see extras_menu_apply_css().) */
     ".extras-menu-list {"
     "  border-radius: 14px;"
-    "  background-color: shade(@theme_bg_color, 0.7);"
     "}"
     ".extras-menu-list-box {"
     "  background: none;"

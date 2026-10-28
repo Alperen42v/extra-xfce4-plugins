@@ -24,7 +24,7 @@ CFLAGS += -I$(SRC_DIR)
 
 SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC_DIR)/brightness.c $(SRC_DIR)/microphone.c \
           $(SRC_DIR)/quick-actions.c $(SRC_DIR)/battery.c \
-          $(SRC_DIR)/dropdown.c $(SRC_DIR)/system-status.c \
+          $(SRC_DIR)/dropdown.c $(SRC_DIR)/dropdown-style.c $(SRC_DIR)/system-status.c \
           $(SRC_DIR)/bluetooth/bluetooth.c \
           $(SRC_DIR)/bluetooth/bluetooth-adapter.c \
           $(SRC_DIR)/bluetooth/bluetooth-devices.c \

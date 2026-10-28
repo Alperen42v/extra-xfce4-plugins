@@ -22,6 +22,7 @@ G_BEGIN_DECLS
 #define EXTRAS_MENU_PLUGIN_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass), EXTRAS_MENU_TYPE_PLUGIN, ExtrasMenuPluginClass))
 
 typedef struct _ExtrasMenuPlugin      ExtrasMenuPlugin;
+typedef struct _ExtrasMenuDropdownStyle ExtrasMenuDropdownStyle;
 typedef struct _ExtrasMenuPluginClass ExtrasMenuPluginClass;
 
 struct _ExtrasMenuPlugin
@@ -280,6 +281,12 @@ struct _ExtrasMenuPlugin
      * so this one pointer is all that is needed here. NULL if the pill
      * widget wasn't found. Appended last, like the fields above. */
     ExtrasMenuDarkMode *dark_mode;
+
+    /* Keeps the dropdown painted in the panel's own background color and
+     * transparency (dropdown-style.c). Private to that module, which
+     * owns it; NULL until the dropdown's content exists. Appended last,
+     * like the fields above. */
+    ExtrasMenuDropdownStyle *dropdown_style;
 };
 
 struct _ExtrasMenuPluginClass
