@@ -61,10 +61,20 @@ apply_network_status(ExtrasMenuPlugin *plugin, ExtrasMenuNetworkKind kind)
 
         case EXTRAS_MENU_NETWORK_KIND_NONE:
         default:
+        {
+            /* Not connected: "radio switched off" and "radio on but no
+             * network" are different situations and get different icons,
+             * the same way the panel button's icon tells them apart. */
+            gboolean radio_off = plugin->network_wifi_has_enabled_state &&
+                                 !plugin->network_wifi_last_enabled;
+
             gtk_label_set_text(GTK_LABEL(plugin->network_pill_label), "Wi-Fi");
             gtk_image_set_from_icon_name(GTK_IMAGE(plugin->network_pill_icon),
-                                          "network-wireless-offline-symbolic", GTK_ICON_SIZE_BUTTON);
+                                          radio_off ? "network-wireless-disabled-symbolic"
+                                                    : "network-wireless-offline-symbolic",
+                                          GTK_ICON_SIZE_BUTTON);
             break;
+        }
     }
 }
 
@@ -108,6 +118,10 @@ on_wifi_enabled_changed(gboolean enabled, gpointer user_data)
     extras_menu_airplane_mode_wifi_changed(plugin->airplane_mode, enabled);
 
     extras_menu_system_status_update_network_icon(plugin);
+
+    /* The pill's own icon depends on the radio state too (see the NONE
+     * case of apply_network_status()). */
+    apply_network_status(plugin, plugin->network_last_kind);
 
     if (plugin->network_toggle == NULL)
         return;

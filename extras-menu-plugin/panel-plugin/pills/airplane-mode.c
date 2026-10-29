@@ -42,6 +42,12 @@ struct _ExtrasMenuAirplaneMode
     gboolean target_bluetooth;
     guint settle_source_id;
 
+    /* TRUE from a click that switched aeroplane mode on until the user
+     * switches it off again or a radio comes back on by other means.
+     * Without it, merely turning Wi-Fi off while Bluetooth was already
+     * off (or absent) would look like aeroplane mode. */
+    gboolean engaged;
+
     /* TRUE while the module itself moves the toggle, so its own
      * "toggled" handler doesn't treat that as a click. */
     gboolean updating_from_backend;
@@ -101,9 +107,9 @@ set_toggle_active(ExtrasMenuAirplaneMode *am, gboolean active)
     notify_changed(am);
 }
 
-/* Shows the real state: "on" exactly when both radios are off. Does
- * nothing until both backends have reported, and while a click is still
- * being carried out. */
+/* Shows the real state: "on" when the user switched aeroplane mode on
+ * and both radios are still off. Does nothing until both backends have
+ * reported, and while a click is still being carried out. */
 static void
 sync_toggle(ExtrasMenuAirplaneMode *am)
 {
@@ -116,7 +122,13 @@ sync_toggle(ExtrasMenuAirplaneMode *am)
     if (am->request_active)
         return;
 
-    set_toggle_active(am, radios_match(am, FALSE, FALSE));
+    gboolean both_off = radios_match(am, FALSE, FALSE);
+
+    /* A radio is on again (switched elsewhere): aeroplane mode is over. */
+    if (!both_off)
+        am->engaged = FALSE;
+
+    set_toggle_active(am, am->engaged && both_off);
 }
 
 static void
@@ -189,6 +201,7 @@ on_toggled(GtkToggleButton *button, gpointer user_data)
         am->target_bluetooth = am->restore_bluetooth || nothing_remembered;
     }
 
+    am->engaged = gtk_toggle_button_get_active(button);
     am->request_active = TRUE;
 
     /* The click itself already moved the toggle; let the owner know now

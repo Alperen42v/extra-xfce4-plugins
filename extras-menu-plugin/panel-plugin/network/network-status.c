@@ -30,7 +30,16 @@ typedef struct
     ExtrasMenuNetwork *network; /* only valid while the cancellable isn't cancelled */
     GCancellable *cancellable;  /* own reference */
     guint generation;
+
+    /* Only used by the walk over all active connections (see
+     * walk_next_active_connection()). */
+    gchar **paths;      /* NULL-terminated, owned */
+    guint index;
+    gboolean wifi_seen; /* an activated Wi-Fi connection was found on the way */
 } StatusRequestCtx;
+
+/* NMActiveConnectionState */
+#define NM_ACTIVE_CONNECTION_STATE_ACTIVATED 2
 
 static StatusRequestCtx *
 status_request_ctx_new(ExtrasMenuNetwork *network, guint generation)
@@ -46,6 +55,7 @@ static void
 status_request_ctx_free(StatusRequestCtx *ctx)
 {
     g_object_unref(ctx->cancellable);
+    g_strfreev(ctx->paths);
     g_free(ctx);
 }
 
@@ -199,12 +209,204 @@ rewatch_ip4config(ExtrasMenuNetwork *network, const gchar *new_path)
         on_ip4config_changed_signal, network, NULL);
 }
 
+/* The primary connection is an active Ethernet connection: watch its
+ * IP4Config and report Ethernet (with the address once it is known). */
+static void
+handle_ethernet_connection(ExtrasMenuNetwork *network, const gchar *ip4config_path,
+                            guint generation)
+{
+    /* "/" is D-Bus' "no object": the connection has no IPv4
+     * configuration (yet, or at all -- e.g. IPv6-only). There's
+     * nothing to read or watch then, and treating it as a real
+     * path would only produce a failing call. */
+    if (ip4config_path != NULL && g_strcmp0(ip4config_path, "/") == 0)
+        ip4config_path = NULL;
+
+    rewatch_ip4config(network, ip4config_path);
+    if (ip4config_path != NULL)
+        request_ip4config(network, ip4config_path, generation);
+    else
+        report_status(network, EXTRAS_MENU_NETWORK_KIND_ETHERNET, NULL);
+}
+
+/* --- finding the real link under a VPN ---------------------------------------
+ *
+ * While a VPN is up, NetworkManager's PrimaryConnection is the VPN's
+ * own connection (type "vpn", "wireguard", "tun", ...), not the Wi-Fi or
+ * Ethernet link it runs over. Treating that as "no connection" made the
+ * pill and the panel icon look offline for as long as a VPN was
+ * connected. So when the primary connection is neither Ethernet nor
+ * Wi-Fi, all active connections are looked at one by one instead:
+ * an activated Ethernet one wins (same priority as always), otherwise an
+ * activated Wi-Fi one, otherwise there really is no connection. */
+
+static void walk_next_active_connection(StatusRequestCtx *ctx);
+
+static void
+on_walk_connection_properties_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    StatusRequestCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+
+    if (status_request_is_stale(ctx, TRUE))
+    {
+        if (reply != NULL)
+            g_variant_unref(reply);
+        g_clear_error(&error);
+        status_request_ctx_free(ctx);
+        return;
+    }
+
+    g_clear_error(&error);
+
+    if (reply != NULL)
+    {
+        GVariant *props = NULL;
+        g_variant_get(reply, "(@a{sv})", &props);
+
+        GVariant *type_v = g_variant_lookup_value(props, "Type", G_VARIANT_TYPE_STRING);
+        GVariant *state_v = g_variant_lookup_value(props, "State", G_VARIANT_TYPE_UINT32);
+        GVariant *ip4config_v = g_variant_lookup_value(props, "Ip4Config", G_VARIANT_TYPE("o"));
+
+        const gchar *type_str = type_v != NULL ? g_variant_get_string(type_v, NULL) : "";
+        gboolean activated = state_v != NULL &&
+                             g_variant_get_uint32(state_v) == NM_ACTIVE_CONNECTION_STATE_ACTIVATED;
+        gboolean found_ethernet = FALSE;
+
+        if (activated && g_strcmp0(type_str, "802-3-ethernet") == 0)
+        {
+            found_ethernet = TRUE;
+            handle_ethernet_connection(ctx->network,
+                                        ip4config_v != NULL ? g_variant_get_string(ip4config_v, NULL) : NULL,
+                                        ctx->generation);
+        }
+        else if (activated && g_strcmp0(type_str, "802-11-wireless") == 0)
+        {
+            ctx->wifi_seen = TRUE;
+        }
+
+        if (type_v != NULL) g_variant_unref(type_v);
+        if (state_v != NULL) g_variant_unref(state_v);
+        if (ip4config_v != NULL) g_variant_unref(ip4config_v);
+        g_variant_unref(props);
+        g_variant_unref(reply);
+
+        if (found_ethernet)
+        {
+            status_request_ctx_free(ctx);
+            return;
+        }
+    }
+
+    ctx->index++;
+    walk_next_active_connection(ctx);
+}
+
+/* Reads the next active connection's properties, or -- when all of them
+ * have been looked at -- reports what was found. Only called while ctx
+ * is known to be current (its callers have just checked). */
+static void
+walk_next_active_connection(StatusRequestCtx *ctx)
+{
+    ExtrasMenuNetwork *network = ctx->network;
+
+    if (ctx->paths == NULL || ctx->paths[ctx->index] == NULL)
+    {
+        rewatch_ip4config(network, NULL);
+        report_status(network,
+                      ctx->wifi_seen ? EXTRAS_MENU_NETWORK_KIND_WIFI : EXTRAS_MENU_NETWORK_KIND_NONE,
+                      NULL);
+        status_request_ctx_free(ctx);
+        return;
+    }
+
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        ctx->paths[ctx->index],
+        "org.freedesktop.DBus.Properties",
+        "GetAll",
+        g_variant_new("(s)", NM_CONNECTION_ACTIVE_IFACE),
+        G_VARIANT_TYPE("(a{sv})"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, network->cancellable,
+        on_walk_connection_properties_finished, ctx);
+}
+
+static void
+on_active_connections_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    StatusRequestCtx *ctx = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+
+    if (status_request_is_stale(ctx, TRUE))
+    {
+        if (reply != NULL)
+            g_variant_unref(reply);
+        g_clear_error(&error);
+        status_request_ctx_free(ctx);
+        return;
+    }
+
+    ExtrasMenuNetwork *network = ctx->network;
+
+    if (reply == NULL)
+    {
+        g_clear_error(&error);
+        rewatch_ip4config(network, NULL);
+        report_status(network, EXTRAS_MENU_NETWORK_KIND_NONE, NULL);
+        status_request_ctx_free(ctx);
+        return;
+    }
+
+    GVariant *boxed = NULL;
+    g_variant_get(reply, "(v)", &boxed);
+
+    gsize n = g_variant_n_children(boxed);
+    ctx->paths = g_new0(gchar *, n + 1);
+    for (gsize i = 0; i < n; i++)
+    {
+        GVariant *child = g_variant_get_child_value(boxed, i);
+        ctx->paths[i] = g_variant_dup_string(child, NULL);
+        g_variant_unref(child);
+    }
+
+    g_variant_unref(boxed);
+    g_variant_unref(reply);
+
+    ctx->index = 0;
+    ctx->wifi_seen = FALSE;
+    walk_next_active_connection(ctx);
+}
+
+/* Next link of the status chain when the primary connection is
+ * something else than Ethernet or Wi-Fi (a VPN, usually). */
+static void
+request_physical_connection_status(ExtrasMenuNetwork *network, guint generation)
+{
+    g_dbus_connection_call(
+        network->system_bus,
+        NM_BUS_NAME,
+        NM_OBJ_PATH,
+        "org.freedesktop.DBus.Properties",
+        "Get",
+        g_variant_new("(ss)", NM_IFACE, "ActiveConnections"),
+        G_VARIANT_TYPE("(v)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        -1, network->cancellable,
+        on_active_connections_finished, status_request_ctx_new(network, generation));
+}
+
 /* Reads NetworkManager.Connection.Active's Type and Ip4Config
  * properties for the given active-connection object path, then
- * reports the resulting status (Ethernet+IP, Wi-Fi, or -- if the type
- * is neither -- treats it as no primary connection, e.g. a VPN-only
- * "connection" with no underlying physical link we'd show a pill
- * for). */
+ * reports the resulting status (Ethernet+IP or Wi-Fi). If the type is
+ * neither -- typically a VPN, which NetworkManager makes the primary
+ * connection while it is up -- the physical link under it is looked up
+ * instead (see request_physical_connection_status()). */
 static void
 on_active_connection_properties_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 {
@@ -243,20 +445,9 @@ on_active_connection_properties_finished(GObject *source, GAsyncResult *result, 
 
     if (g_strcmp0(type_str, "802-3-ethernet") == 0)
     {
-        const gchar *ip4config_path = ip4config_v != NULL ? g_variant_get_string(ip4config_v, NULL) : NULL;
-
-        /* "/" is D-Bus' "no object": the connection has no IPv4
-         * configuration (yet, or at all -- e.g. IPv6-only). There's
-         * nothing to read or watch then, and treating it as a real
-         * path would only produce a failing call. */
-        if (ip4config_path != NULL && g_strcmp0(ip4config_path, "/") == 0)
-            ip4config_path = NULL;
-
-        rewatch_ip4config(network, ip4config_path);
-        if (ip4config_path != NULL)
-            request_ip4config(network, ip4config_path, ctx->generation);
-        else
-            report_status(network, EXTRAS_MENU_NETWORK_KIND_ETHERNET, NULL);
+        handle_ethernet_connection(network,
+                                    ip4config_v != NULL ? g_variant_get_string(ip4config_v, NULL) : NULL,
+                                    ctx->generation);
     }
     else if (g_strcmp0(type_str, "802-11-wireless") == 0)
     {
@@ -265,8 +456,8 @@ on_active_connection_properties_finished(GObject *source, GAsyncResult *result, 
     }
     else
     {
-        rewatch_ip4config(network, NULL);
-        report_status(network, EXTRAS_MENU_NETWORK_KIND_NONE, NULL);
+        /* A VPN (or similar) on top of the real link. Not "offline". */
+        request_physical_connection_status(network, ctx->generation);
     }
 
     if (type_v != NULL) g_variant_unref(type_v);
@@ -436,9 +627,35 @@ on_nm_properties_changed(GDBusConnection *connection, const gchar *sender_name,
     request_wifi_enabled_state(network);
 }
 
+/* Any active connection changed state (activating -> activated, ...).
+ * The status only counts *activated* connections, so it has to be read
+ * again when one becomes (or stops being) activated. */
+static void
+on_active_connection_state_changed(GDBusConnection *connection, const gchar *sender_name,
+                                    const gchar *object_path, const gchar *interface_name,
+                                    const gchar *signal_name, GVariant *parameters,
+                                    gpointer user_data)
+{
+    ExtrasMenuNetwork *network = user_data;
+    (void) connection;
+    (void) sender_name;
+    (void) object_path;
+    (void) interface_name;
+    (void) signal_name;
+    (void) parameters;
+
+    request_primary_connection_status(network);
+}
+
 void
 network_start_primary_connection_tracking(ExtrasMenuNetwork *network)
 {
+    network->active_state_subscription_id = g_dbus_connection_signal_subscribe(
+        network->system_bus, NM_BUS_NAME,
+        NM_CONNECTION_ACTIVE_IFACE, "StateChanged",
+        NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE,
+        on_active_connection_state_changed, network, NULL);
+
     network->nm_props_subscription_id = g_dbus_connection_signal_subscribe(
         network->system_bus, NM_BUS_NAME,
         "org.freedesktop.DBus.Properties", "PropertiesChanged",

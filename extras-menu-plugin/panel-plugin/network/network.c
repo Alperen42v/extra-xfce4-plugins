@@ -386,6 +386,8 @@ extras_menu_network_free(ExtrasMenuNetwork *network)
             g_dbus_connection_signal_unsubscribe(network->system_bus, network->ap_removed_subscription_id);
         if (network->nm_props_subscription_id != 0)
             g_dbus_connection_signal_unsubscribe(network->system_bus, network->nm_props_subscription_id);
+        if (network->active_state_subscription_id != 0)
+            g_dbus_connection_signal_unsubscribe(network->system_bus, network->active_state_subscription_id);
         if (network->ip4config_props_subscription_id != 0)
             g_dbus_connection_signal_unsubscribe(network->system_bus, network->ip4config_props_subscription_id);
         g_object_unref(network->system_bus);

@@ -74,6 +74,15 @@ struct _ExtrasMenuNetwork
      * pill's label and behavior. */
     guint nm_props_subscription_id;
 
+    /* Subscribed once, to every active connection's StateChanged signal
+     * (any object path). A connection going from "activating" to
+     * "activated" (Wi-Fi coming back up, a VPN reconnecting) changes
+     * nothing on the top-level NetworkManager object when another
+     * connection -- typically a VPN -- already is the primary one, so
+     * without this the status would be read while the Wi-Fi is still
+     * "activating" and never refreshed. */
+    guint active_state_subscription_id;
+
     /* Object path of whatever IP4Config we're currently watching for
      * changes (belongs to the active Ethernet connection), so we can
      * unsubscribe/resubscribe correctly as the active connection

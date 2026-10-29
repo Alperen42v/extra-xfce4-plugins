@@ -18,11 +18,13 @@ G_BEGIN_DECLS
  *   - forward the Wi-Fi and Bluetooth backends' state changes to it, and
  *   - free it.
  *
- * The toggle is never stored as a setting of its own: it shows "on"
- * exactly when Wi-Fi is off and Bluetooth is off (or there is no
- * Bluetooth adapter). So it also follows changes made elsewhere --
- * turning Wi-Fi back on from the Wi-Fi pill, or from nmcli, switches
- * aeroplane mode off by itself.
+ * The toggle is not stored as a setting: it shows "on" after the user
+ * switched it on, for as long as Wi-Fi and Bluetooth (if there is an
+ * adapter) both stay off. Switching just one radio off by itself does
+ * not turn it on. It also follows changes made elsewhere -- turning
+ * Wi-Fi back on from the Wi-Fi pill, or from nmcli, switches aeroplane
+ * mode off by itself. It starts "off" when the plugin loads, even if
+ * both radios happen to be off already.
  */
 
 typedef struct _ExtrasMenuAirplaneMode ExtrasMenuAirplaneMode;
