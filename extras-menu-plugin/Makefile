@@ -18,6 +18,19 @@ LDFLAGS += -shared
 SRC_DIR = panel-plugin
 BUILD_DIR = build
 
+# Quiet build: one "[n/total] Compiling file" line per source instead of
+# the full compiler command. `make V=1` shows the full commands again.
+ifeq ($(V),1)
+  Q =
+else
+  Q = @
+endif
+
+# Progress bookkeeping (see progress-init below). One line is appended to
+# PROGRESS_FILE per compiled source, so the count also works with make -j.
+PROGRESS_FILE = $(BUILD_DIR)/.progress
+TOTAL_FILE = $(BUILD_DIR)/.total
+
 # Lets every source, also those in subfolders, include headers by their
 # path from panel-plugin/ (e.g. "extras-menu.h", "network/network-ui.h").
 CFLAGS += -I$(SRC_DIR)
@@ -54,24 +67,41 @@ OBJECTS = $(SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 TARGET = $(BUILD_DIR)/lib$(PLUGIN_NAME).so
 DESKTOP_FILE = $(PLUGIN_NAME).desktop
 
-.PHONY: all clean install uninstall
+.PHONY: all clean install uninstall progress-init
 
 all: $(TARGET)
 
 $(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)
 
 # $(dir $@) because some sources live in subfolders (preferences/, network/, bluetooth/).
 # -MMD -MP writes .d files so that editing a header rebuilds everything
 # that includes it (struct layouts are shared between files here).
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR) progress-init
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+	@echo x >> $(PROGRESS_FILE)
+	@n=$$(wc -l < $(PROGRESS_FILE)); t=$$(cat $(TOTAL_FILE)); \
+	  printf '[%s/%s] Compiling %s\n' "$$n" "$$t" "$<"
+	$(Q)$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+# Runs once per make invocation, before the first source is compiled:
+# resets the counter and works out how many sources actually need
+# compiling, by asking a dry-run copy of this makefile (COUNTING=1 keeps
+# that copy from doing the same and recursing forever). Sources that are
+# up to date are not counted, so the total is what you will see scroll by.
+ifndef COUNTING
+progress-init: | $(BUILD_DIR)
+	@: > $(PROGRESS_FILE)
+	@$(MAKE) --no-print-directory -n COUNTING=1 $(OBJECTS) 2>/dev/null | grep -c -e '-MMD' > $(TOTAL_FILE) || true
+else
+progress-init: ;
+endif
 
 -include $(OBJECTS:.o=.d)
 
 $(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ $(LDFLAGS) $(LIBS)
+	@echo "Linking $@"
+	$(Q)$(CC) $(OBJECTS) -o $@ $(LDFLAGS) $(LIBS)
 
 install: all
 	install -d $(PLUGIN_LIBDIR)
