@@ -194,13 +194,19 @@ position_dropdown_below_button(ExtrasMenuPlugin *plugin)
      * rather than just the left edge. */
     GdkDisplay *display = gdk_window_get_display(button_window);
     GdkMonitor *monitor = gdk_display_get_monitor_at_window(display, button_window);
-    GdkRectangle monitor_geom;
-    gdk_monitor_get_geometry(monitor, &monitor_geom);
 
-    if (x < monitor_geom.x)
-        x = monitor_geom.x;
-    else if (x + natural_size.width > monitor_geom.x + monitor_geom.width)
-        x = monitor_geom.x + monitor_geom.width - natural_size.width;
+    /* gdk_display_get_monitor_at_window() can return NULL (no monitor
+     * known for the window yet); then there is nothing to clamp to. */
+    if (monitor != NULL)
+    {
+        GdkRectangle monitor_geom;
+        gdk_monitor_get_geometry(monitor, &monitor_geom);
+
+        if (x < monitor_geom.x)
+            x = monitor_geom.x;
+        else if (x + natural_size.width > monitor_geom.x + monitor_geom.width)
+            x = monitor_geom.x + monitor_geom.width - natural_size.width;
+    }
 
     gtk_window_move(GTK_WINDOW(plugin->popover), x, y);
 }
@@ -302,6 +308,9 @@ on_dropdown_size_allocate(GtkWidget *widget, GdkRectangle *allocation,
 static void
 on_toggle_button_clicked(GtkToggleButton *button, ExtrasMenuPlugin *plugin)
 {
+    if (plugin->popover == NULL)
+        return;
+
     if (gtk_toggle_button_get_active(button))
     {
         position_dropdown_below_button(plugin);
@@ -533,4 +542,32 @@ extras_menu_dropdown_create(ExtrasMenuPlugin *plugin)
                       G_CALLBACK(on_dropdown_map_event), plugin);
     g_signal_connect(plugin->popover, "button-press-event",
                       G_CALLBACK(on_dropdown_button_press), plugin);
+}
+
+/* Tears the dropdown window down for good. The window is a top-level of
+ * its own, not a child of the panel plugin, so nothing else destroys it
+ * when the plugin is removed. Its handlers are disconnected first: they
+ * would otherwise run during the destruction (the "hide" one touches the
+ * network and Bluetooth widgets and lists). Call it last in the plugin's
+ * teardown, after the backends that use the content are gone. */
+void
+extras_menu_dropdown_destroy(ExtrasMenuPlugin *plugin)
+{
+    GtkWidget *window = plugin->popover;
+
+    if (window == NULL)
+        return;
+
+    g_signal_handlers_disconnect_by_data(window, plugin);
+
+    if (gtk_widget_get_visible(window))
+        release_dropdown_input(plugin);
+
+    set_panel_autohide_blocked(plugin, FALSE);
+    plugin->dropdown_anchored_bottom = FALSE;
+
+    /* NULL first: dialogs parented to the window are destroyed with it,
+     * and their handlers look at plugin->popover. */
+    plugin->popover = NULL;
+    gtk_widget_destroy(window);
 }

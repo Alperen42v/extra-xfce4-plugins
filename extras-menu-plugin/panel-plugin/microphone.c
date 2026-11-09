@@ -36,7 +36,14 @@
  * server (which can lag behind the pointer) must not yank it around. */
 #define QUIET_AFTER_USER_US (400 * 1000)
 
-#define RESUBSCRIBE_DELAY_S 3
+/* When `pactl subscribe` ends, it is started again after this long. If
+ * it keeps ending quickly (no sound server at all), the wait doubles up
+ * to the maximum instead of starting a process every few seconds
+ * forever. A stream that stayed up for STABLE_US counts as healthy and
+ * resets the wait. */
+#define RESUBSCRIBE_DELAY_S      3
+#define RESUBSCRIBE_MAX_DELAY_S  60
+#define RESUBSCRIBE_STABLE_US    (10 * G_USEC_PER_SEC)
 
 struct _ExtrasMenuMicrophone
 {
@@ -70,7 +77,9 @@ struct _ExtrasMenuMicrophone
     /* `pactl subscribe` and its reconnect timer. */
     GSubprocess *subscribe;
     GDataInputStream *subscribe_stream;
+    gint64 subscribe_started;
     guint resubscribe_timeout;
+    guint resubscribe_delay_s;
 
     GCancellable *cancellable;
 };
@@ -144,8 +153,8 @@ update_icon(ExtrasMenuMicrophone *mic)
 {
     const gchar *name = icon_for_state(mic);
 
-    /* Same literal means same icon: skip the needless re-render. */
-    if (name != mic->icon_name)
+    /* Same icon: skip the needless re-render. */
+    if (g_strcmp0(name, mic->icon_name) != 0)
     {
         mic->icon_name = name;
         gtk_image_set_from_icon_name(GTK_IMAGE(mic->icon), name, GTK_ICON_SIZE_BUTTON);
@@ -463,8 +472,10 @@ schedule_resubscribe(ExtrasMenuMicrophone *mic)
 {
     if (mic->resubscribe_timeout == 0)
     {
-        mic->resubscribe_timeout = g_timeout_add_seconds(RESUBSCRIBE_DELAY_S,
+        mic->resubscribe_timeout = g_timeout_add_seconds(mic->resubscribe_delay_s,
                                                          on_resubscribe_timeout, mic);
+        mic->resubscribe_delay_s = MIN(mic->resubscribe_delay_s * 2,
+                                       RESUBSCRIBE_MAX_DELAY_S);
     }
 }
 
@@ -490,7 +501,11 @@ on_event_line(GObject *source, GAsyncResult *result, gpointer user_data)
     if (line == NULL)
     {
         /* The stream ended (the sound server restarted, or pactl died):
-         * try again in a moment. */
+         * try again in a moment. One that had been up for a while was
+         * healthy, so its retry starts with the short wait again. */
+        if (g_get_monotonic_time() - mic->subscribe_started > RESUBSCRIBE_STABLE_US)
+            mic->resubscribe_delay_s = RESUBSCRIBE_DELAY_S;
+
         stop_subscribe(mic);
         schedule_resubscribe(mic);
         return;
@@ -531,6 +546,7 @@ start_subscribe(ExtrasMenuMicrophone *mic)
     }
 
     mic->subscribe_stream = g_data_input_stream_new(g_subprocess_get_stdout_pipe(mic->subscribe));
+    mic->subscribe_started = g_get_monotonic_time();
     read_next_event(mic);
 }
 
@@ -549,6 +565,7 @@ extras_menu_microphone_new(GtkWidget *scale, GtkWidget *mute_button, GtkWidget *
     mic->mute_button = g_object_ref(mute_button);
     mic->icon = g_object_ref(icon);
     mic->cancellable = g_cancellable_new();
+    mic->resubscribe_delay_s = RESUBSCRIBE_DELAY_S;
 
     mic->scale_handler = g_signal_connect(scale, "value-changed",
                                           G_CALLBACK(on_scale_value_changed), mic);

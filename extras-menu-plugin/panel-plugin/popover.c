@@ -198,18 +198,32 @@ static const gchar *EXTRAS_MENU_CSS =
     "  padding: 10px 14px 10px 10px;"
     "}";
 
+/* The stylesheet is parsed once and the same provider is handed to every
+ * widget that needs it. It used to be parsed again for each widget (about
+ * twenty of them while the dropdown is built, plus every quick-action
+ * button), which cost start-up time and memory for identical results.
+ * The provider lives as long as the process, like the module itself. */
+static GtkCssProvider *
+extras_menu_get_css_provider(void)
+{
+    static GtkCssProvider *provider = NULL;
+
+    if (provider == NULL)
+    {
+        provider = gtk_css_provider_new();
+        gtk_css_provider_load_from_data(provider, EXTRAS_MENU_CSS, -1, NULL);
+    }
+
+    return provider;
+}
+
 static void
 extras_menu_apply_css(GtkWidget *widget)
 {
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(provider, EXTRAS_MENU_CSS, -1, NULL);
-
     GtkStyleContext *context = gtk_widget_get_style_context(widget);
     gtk_style_context_add_provider(context,
-                                    GTK_STYLE_PROVIDER(provider),
+                                    GTK_STYLE_PROVIDER(extras_menu_get_css_provider()),
                                     GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-
-    g_object_unref(provider);
 }
 
 /* Small helper: a pill-shaped toggle button with an icon + label,

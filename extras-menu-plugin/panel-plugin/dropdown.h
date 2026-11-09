@@ -18,6 +18,11 @@ void extras_menu_dropdown_create(ExtrasMenuPlugin *plugin);
  * Does nothing if it isn't holding the panel. */
 void extras_menu_dropdown_release_panel(ExtrasMenuPlugin *plugin);
 
+/* Destroys the dropdown window (and with it its content) when the plugin
+ * is torn down. Call it after the backends that use the content have been
+ * freed. Does nothing if the window is already gone. */
+void extras_menu_dropdown_destroy(ExtrasMenuPlugin *plugin);
+
 /* Hides the dropdown and resets the panel button to match. Takes a
  * gpointer (the ExtrasMenuPlugin) so it can be handed to
  * extras_menu_quick_actions_attach() as its close callback. */

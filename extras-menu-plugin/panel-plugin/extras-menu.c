@@ -181,6 +181,10 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
     extras_menu_system_status_free(plugin);
     extras_menu_bluetooth_ui_free(plugin);
     extras_menu_network_ui_free(plugin);
+
+    /* Last: the backends above must be stopped before the widgets they
+     * feed are destroyed. */
+    extras_menu_dropdown_destroy(plugin);
 }
 
 static void extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin);
@@ -204,74 +208,14 @@ extras_menu_plugin_class_init(ExtrasMenuPluginClass *klass)
 static void
 extras_menu_plugin_init(ExtrasMenuPlugin *plugin)
 {
-    /* Widgets are built in construct(), once the plugin has a panel to
-     * attach to; nothing to do here yet. */
-    plugin->toggle_button = NULL;
-    plugin->panel_icons_box = NULL;
-    plugin->panel_network_icon = NULL;
-    plugin->panel_volume_icon = NULL;
-    plugin->panel_battery_icon = NULL;
-    plugin->popover = NULL;
-    plugin->battery_label = NULL;
-    plugin->battery_icon = NULL;
-    plugin->battery = NULL;
-    plugin->quick_actions_box = NULL;
-    plugin->quick_actions_config_listener = 0;
-    plugin->pill_layout_listener = 0;
-    plugin->slider_layout_listener = 0;
-    plugin->volume_scale = NULL;
-    plugin->volume_icon = NULL;
-    plugin->audio = NULL;
-    plugin->updating_volume_from_backend = FALSE;
-    plugin->brightness_scale = NULL;
-    plugin->brightness = NULL;
-    plugin->updating_brightness_from_backend = FALSE;
-    plugin->microphone = NULL;
-    plugin->bluetooth_toggle = NULL;
-    plugin->bluetooth_expand_button = NULL;
-    plugin->bluetooth_expand_chevron = NULL;
-    plugin->bluetooth_revealer = NULL;
-    plugin->bluetooth_list_box = NULL;
-    plugin->bluetooth = NULL;
-    plugin->bluetooth_row_by_path = NULL;
-    plugin->bluetooth_busy_path = NULL;
-    plugin->bluetooth_busy_text = NULL;
-    plugin->bluetooth_busy_failure_title = NULL;
-    plugin->updating_bluetooth_from_backend = FALSE;
-    plugin->bluetooth_last_available = FALSE;
-    plugin->bluetooth_last_powered = FALSE;
-    plugin->bluetooth_has_state = FALSE;
-    plugin->network_toggle = NULL;
-    plugin->network_pill_label = NULL;
-    plugin->network_pill_icon = NULL;
-    plugin->network_expand_button = NULL;
-    plugin->network_expand_chevron = NULL;
-    plugin->network_icon_stack = NULL;
-    plugin->network_spinner = NULL;
-    plugin->network_row_by_ssid = NULL;
-    plugin->network_revealer = NULL;
-    plugin->network_list_box = NULL;
-    plugin->network = NULL;
+    /* GObject hands out a zero-filled instance, so every pointer is NULL,
+     * every flag FALSE and every counter 0 already; listing them all
+     * again here only made it easy to forget one when a field was added.
+     * Only the fields whose "empty" value isn't zero are set. Widgets
+     * are built in construct(), once the plugin has a panel to attach
+     * to. */
     plugin->network_last_kind = EXTRAS_MENU_NETWORK_KIND_NONE;
-    plugin->network_last_ip_address = NULL;
-    plugin->network_has_status = FALSE;
-    plugin->network_wifi_last_enabled = FALSE;
-    plugin->network_wifi_has_enabled_state = FALSE;
-    plugin->airplane_mode = NULL;
-    plugin->pending_connect_ssid = NULL;
-    plugin->pending_connect_secured = FALSE;
-    plugin->pending_connect_password_was_tried = FALSE;
     plugin->pending_connect_security = EXTRAS_MENU_AP_SECURITY_UNKNOWN;
-    plugin->pending_connect_active = FALSE;
-    plugin->pending_connect_prompting = FALSE;
-    plugin->updating_wifi_enabled_from_backend = FALSE;
-    plugin->open_dialog_count = 0;
-    plugin->dropdown_anchored_bottom = FALSE;
-    plugin->dropdown_anchor_bottom = 0;
-    plugin->power_profile = NULL;
-    plugin->dropdown_autohide_blocked = FALSE;
-    plugin->dark_mode = NULL;
-    plugin->dropdown_style = NULL;
 }
 
 static void

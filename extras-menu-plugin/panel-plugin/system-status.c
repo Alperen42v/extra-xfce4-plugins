@@ -14,6 +14,22 @@
  * matching backend callback, next to the code that updates the
  * dropdown's own widgets. All of them tolerate the icon not existing yet. */
 
+/* Sets a status icon only if it actually changes. The backends report
+ * often (every slider step, every UPower refresh) and mostly with the
+ * same icon; re-setting it makes GTK drop and reload the icon and
+ * queue a redraw each time for nothing. */
+static void
+set_status_icon(GtkWidget *image, const gchar *icon_name)
+{
+    const gchar *current = NULL;
+
+    gtk_image_get_icon_name(GTK_IMAGE(image), &current, NULL);
+    if (g_strcmp0(current, icon_name) == 0)
+        return;
+
+    gtk_image_set_from_icon_name(GTK_IMAGE(image), icon_name, GTK_ICON_SIZE_BUTTON);
+}
+
 void
 extras_menu_system_status_update_network_icon(ExtrasMenuPlugin *plugin)
 {
@@ -33,8 +49,7 @@ extras_menu_system_status_update_network_icon(ExtrasMenuPlugin *plugin)
     else
         icon_name = "network-wireless-offline-symbolic";
 
-    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_network_icon),
-                                  icon_name, GTK_ICON_SIZE_BUTTON);
+    set_status_icon(plugin->panel_network_icon, icon_name);
 }
 
 /* Speaker icon for a volume level; muted and 0% look the same to the
@@ -58,9 +73,7 @@ update_panel_volume_icon(ExtrasMenuPlugin *plugin, guint volume_percent, gboolea
     if (plugin->panel_volume_icon == NULL)
         return;
 
-    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_volume_icon),
-                                  volume_icon_name(volume_percent, muted),
-                                  GTK_ICON_SIZE_BUTTON);
+    set_status_icon(plugin->panel_volume_icon, volume_icon_name(volume_percent, muted));
 }
 
 /* With a battery: its level/charging icon. Without one (desktop, or
@@ -75,14 +88,12 @@ update_panel_battery_icon(ExtrasMenuPlugin *plugin, gboolean present, guint perc
 
     if (!present)
     {
-        gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_battery_icon),
-                                      "system-shutdown-symbolic", GTK_ICON_SIZE_BUTTON);
+        set_status_icon(plugin->panel_battery_icon, "system-shutdown-symbolic");
         return;
     }
 
     gchar *icon_name = extras_menu_battery_icon_name(percent, state);
-    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->panel_battery_icon),
-                                  icon_name, GTK_ICON_SIZE_BUTTON);
+    set_status_icon(plugin->panel_battery_icon, icon_name);
     g_free(icon_name);
 }
 
@@ -166,8 +177,7 @@ on_battery_changed(gboolean present, guint percent, ExtrasMenuBatteryState state
     g_free(text);
 
     gchar *icon_name = extras_menu_battery_icon_name(percent, state);
-    gtk_image_set_from_icon_name(GTK_IMAGE(plugin->battery_icon), icon_name,
-                                  GTK_ICON_SIZE_BUTTON);
+    set_status_icon(plugin->battery_icon, icon_name);
     g_free(icon_name);
 
     gchar *tooltip = extras_menu_battery_describe(percent, state, seconds);
@@ -232,11 +242,7 @@ on_audio_changed(guint volume_percent, gboolean muted, gpointer user_data)
     /* Muted or 0% gets the crossed-out speaker; otherwise the icon
      * scales by level (low/medium/high) -- see volume_icon_name(). */
     if (plugin->volume_icon != NULL)
-    {
-        gtk_image_set_from_icon_name(GTK_IMAGE(plugin->volume_icon),
-                                      volume_icon_name(volume_percent, muted),
-                                      GTK_ICON_SIZE_BUTTON);
-    }
+        set_status_icon(plugin->volume_icon, volume_icon_name(volume_percent, muted));
 
     /* The icon is the mute button: its tooltip says what a click does. */
     GtkWidget *mute_button = volume_mute_button(plugin);

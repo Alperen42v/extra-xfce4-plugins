@@ -14,6 +14,16 @@ struct _ExtrasMenuBattery
 
     GCancellable *cancellable;
     GDBusProxy *proxy;
+
+    /* What the callback was last told. UPower sends PropertiesChanged
+     * for many things the UI doesn't show (voltage, energy rate, update
+     * time, a time estimate that moves by a few seconds), so a report
+     * identical to the previous one is not passed on. */
+    gboolean reported;
+    gboolean last_present;
+    guint last_percent;
+    ExtrasMenuBatteryState last_state;
+    gint64 last_minutes;
 };
 
 /* UPower's State property -> our simplified enum. */
@@ -86,6 +96,24 @@ report(ExtrasMenuBattery *battery)
         }
     }
     g_free(owner);
+
+    /* The time estimate is shown in whole minutes, so only a change of
+     * the minute counts as a change. */
+    gint64 minutes = seconds > 0 ? MAX((seconds + 30) / 60, 1) : 0;
+
+    if (battery->reported && present == battery->last_present &&
+        (!present || (percent == battery->last_percent &&
+                      state == battery->last_state &&
+                      minutes == battery->last_minutes)))
+    {
+        return;
+    }
+
+    battery->reported = TRUE;
+    battery->last_present = present;
+    battery->last_percent = percent;
+    battery->last_state = state;
+    battery->last_minutes = minutes;
 
     battery->callback(present, percent, state, seconds, battery->user_data);
 }
