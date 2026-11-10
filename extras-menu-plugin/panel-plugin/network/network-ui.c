@@ -379,6 +379,21 @@ on_network_row_activated(GtkListBox *list_box, GtkListBoxRow *row, gpointer user
     extras_menu_network_connect(plugin->network, ssid, NULL, secured, extras_menu_network_ui_connect_result, plugin);
 }
 
+/* The row's signal icon for a strength. Only these four steps are
+ * visible, which is also what decides whether the list has changed in
+ * a way worth rebuilding (see list_signature()). */
+static const gchar *
+strength_icon_name(gint8 strength)
+{
+    if (strength < 25)
+        return "network-wireless-signal-weak-symbolic";
+    if (strength < 50)
+        return "network-wireless-signal-ok-symbolic";
+    if (strength < 75)
+        return "network-wireless-signal-good-symbolic";
+    return "network-wireless-signal-excellent-symbolic";
+}
+
 /* Builds one GtkListBoxRow for an access point: signal-strength icon,
  * SSID, a lock icon if secured, and a status label ("Connected" /
  * "Connecting…"). The SSID and secured flag are stashed as object data
@@ -391,15 +406,7 @@ make_network_row(const ExtrasMenuAccessPoint *ap)
     GtkWidget *row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_container_set_border_width(GTK_CONTAINER(row_box), 6);
 
-    const gchar *strength_icon;
-    if (ap->strength < 25)
-        strength_icon = "network-wireless-signal-weak-symbolic";
-    else if (ap->strength < 50)
-        strength_icon = "network-wireless-signal-ok-symbolic";
-    else if (ap->strength < 75)
-        strength_icon = "network-wireless-signal-good-symbolic";
-    else
-        strength_icon = "network-wireless-signal-excellent-symbolic";
+    const gchar *strength_icon = strength_icon_name(ap->strength);
 
     GtkWidget *signal_icon = gtk_image_new_from_icon_name(strength_icon, GTK_ICON_SIZE_BUTTON);
     gtk_box_pack_start(GTK_BOX(row_box), signal_icon, FALSE, FALSE, 0);
@@ -443,11 +450,66 @@ make_network_row(const ExtrasMenuAccessPoint *ap)
     return row;
 }
 
+/* What the rows show, in order: SSID, signal step, lock, connected --
+ * plus the security scheme a click acts on. Two lists with the same
+ * signature look and behave the same. Kept on the list box as object
+ * data. */
+#define LIST_SIGNATURE_KEY "extras-menu-list-signature"
+
+static gchar *
+list_signature(const ExtrasMenuAccessPoint *aps, guint count)
+{
+    GString *signature = g_string_new(NULL);
+
+    for (guint i = 0; i < count; i++)
+    {
+        g_string_append_printf(signature, "%s\x1f%s\x1f%d\x1f%d\x1f%d\x1e",
+                               aps[i].ssid, strength_icon_name(aps[i].strength),
+                               aps[i].secured ? 1 : 0, aps[i].is_active ? 1 : 0,
+                               (gint) aps[i].security);
+    }
+
+    return g_string_free(signature, FALSE);
+}
+
+/* For a list that looks exactly like the one shown: gives each row the
+ * new details (exact signal, BSSID, ...) that the details dialog and
+ * the context menu read, without rebuilding anything. Returns FALSE if
+ * the rows aren't what was expected, and the list must be rebuilt. */
+static gboolean
+refresh_row_details(GtkWidget *list_box, const ExtrasMenuAccessPoint *aps, guint count)
+{
+    GList *rows = gtk_container_get_children(GTK_CONTAINER(list_box));
+    gboolean ok = (g_list_length(rows) == count);
+    guint i = 0;
+
+    for (GList *l = rows; ok && l != NULL; l = l->next, i++)
+    {
+        const gchar *row_ssid = g_object_get_data(G_OBJECT(l->data), "extras-menu-ssid");
+
+        if (g_strcmp0(row_ssid, aps[i].ssid) != 0)
+        {
+            ok = FALSE;
+            break;
+        }
+
+        g_object_set_data_full(G_OBJECT(l->data), "extras-menu-ap-details",
+                                extras_menu_network_ap_details_new(&aps[i]),
+                                extras_menu_network_ap_details_free);
+    }
+
+    g_list_free(rows);
+    return ok;
+}
+
 /* Called by the network backend whenever the visible Wi-Fi network
  * list changes (initial scan, periodic rescans, a network
  * appearing/disappearing, or the active network changing). Clears and
- * rebuilds the list box from scratch each time -- simpler than
- * diffing, and scan updates are infrequent enough that this is cheap. */
+ * rebuilds the list box from scratch -- simpler than diffing -- but only
+ * when what it shows has changed. Scans keep reporting the same
+ * networks with a signal that wobbles within one icon step; rebuilding
+ * for those meant creating every row again (and losing the hover and
+ * scroll position) for a list that looked identical. */
 static void
 on_network_list_changed(gboolean wifi_available, const ExtrasMenuAccessPoint *aps,
                          guint count, gpointer user_data)
@@ -456,6 +518,21 @@ on_network_list_changed(gboolean wifi_available, const ExtrasMenuAccessPoint *ap
 
     if (plugin->network_list_box == NULL)
         return;
+
+    gchar *signature = wifi_available ? list_signature(aps, count) : NULL;
+
+    if (signature != NULL && count > 0 &&
+        g_strcmp0(signature, g_object_get_data(G_OBJECT(plugin->network_list_box),
+                                               LIST_SIGNATURE_KEY)) == 0 &&
+        refresh_row_details(plugin->network_list_box, aps, count))
+    {
+        g_free(signature);
+        return;
+    }
+
+    /* Takes ownership; NULL (Wi-Fi unavailable) clears it. */
+    g_object_set_data_full(G_OBJECT(plugin->network_list_box), LIST_SIGNATURE_KEY,
+                            signature, g_free);
 
     GList *existing_rows = gtk_container_get_children(GTK_CONTAINER(plugin->network_list_box));
     for (GList *l = existing_rows; l != NULL; l = l->next)

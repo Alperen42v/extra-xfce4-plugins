@@ -420,6 +420,10 @@ on_device_props_for_scan_finished(GObject *source, GAsyncResult *result, gpointe
 
     if (ap_paths_v == NULL || g_variant_n_children(ap_paths_v) == 0)
     {
+        /* Nothing visible any more, so no network's security is known
+         * either (it would otherwise linger from an earlier list). */
+        g_hash_table_remove_all(network->security_by_ssid);
+
         if (network->list_changed_callback != NULL)
             network->list_changed_callback(TRUE, NULL, 0, network->list_changed_user_data);
 

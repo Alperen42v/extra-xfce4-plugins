@@ -76,8 +76,32 @@ status_request_is_stale(const StatusRequestCtx *ctx, gboolean check_generation)
 static void
 report_status(ExtrasMenuNetwork *network, ExtrasMenuNetworkKind kind, const gchar *ip_address)
 {
+    /* The same outcome as last time (very common: NetworkManager
+     * announces plenty of changes that don't alter it) isn't passed on. */
+    if (network->status_reported && kind == network->last_status_kind &&
+        g_strcmp0(ip_address, network->last_status_ip) == 0)
+        return;
+
+    network->status_reported = TRUE;
+    network->last_status_kind = kind;
+    g_free(network->last_status_ip);
+    network->last_status_ip = g_strdup(ip_address);
+
     if (network->status_changed_callback != NULL)
         network->status_changed_callback(kind, ip_address, network->status_changed_user_data);
+}
+
+static void
+report_wifi_enabled(ExtrasMenuNetwork *network, gboolean enabled)
+{
+    if (network->wifi_enabled_reported && network->last_wifi_enabled == enabled)
+        return;
+
+    network->wifi_enabled_reported = TRUE;
+    network->last_wifi_enabled = enabled;
+
+    if (network->wifi_enabled_changed_callback != NULL)
+        network->wifi_enabled_changed_callback(enabled, network->wifi_enabled_changed_user_data);
 }
 
 /* --- tracking the primary connection (drives the Wi-Fi/Ethernet pill) --- */
@@ -584,8 +608,7 @@ on_get_wifi_enabled_finished(GObject *source, GAsyncResult *result, gpointer use
     g_variant_unref(boxed);
     g_variant_unref(reply);
 
-    if (network->wifi_enabled_changed_callback != NULL)
-        network->wifi_enabled_changed_callback(enabled, network->wifi_enabled_changed_user_data);
+    report_wifi_enabled(network, enabled);
 
     status_request_ctx_free(ctx);
 }
@@ -606,6 +629,18 @@ request_wifi_enabled_state(ExtrasMenuNetwork *network)
         on_get_wifi_enabled_finished, status_request_ctx_new(network, 0));
 }
 
+static gboolean
+dict_has_key(GVariant *dict, const gchar *key)
+{
+    GVariant *value = g_variant_lookup_value(dict, key, NULL);
+
+    if (value == NULL)
+        return FALSE;
+
+    g_variant_unref(value);
+    return TRUE;
+}
+
 static void
 on_nm_properties_changed(GDBusConnection *connection, const gchar *sender_name,
                           const gchar *object_path, const gchar *interface_name,
@@ -618,13 +653,56 @@ on_nm_properties_changed(GDBusConnection *connection, const gchar *sender_name,
     (void) object_path;
     (void) interface_name;
     (void) signal_name;
-    (void) parameters;
 
-    /* Either PrimaryConnection or WirelessEnabled (or both, or
-     * unrelated properties) may have changed -- re-check both rather
-     * than inspecting parameters to figure out which. Cheap enough. */
-    request_primary_connection_status(network);
-    request_wifi_enabled_state(network);
+    /* Something unexpected about the signal: do the thorough thing and
+     * re-check everything. */
+    if (parameters == NULL || !g_variant_is_of_type(parameters, G_VARIANT_TYPE("(sa{sv}as)")))
+    {
+        request_primary_connection_status(network);
+        request_wifi_enabled_state(network);
+        return;
+    }
+
+    /* NetworkManager changes properties all the time (connectivity
+     * checks, metered state, ...). Only these matter here:
+     *   PrimaryConnection / ActiveConnections -- what the status chain
+     *                                            works out
+     *   WirelessEnabled                       -- the radio switch, whose
+     *                                            new value is right in
+     *                                            the signal
+     * A property listed as "invalidated" comes without its value, so
+     * that case re-reads everything. */
+    const gchar *changed_interface = NULL;
+    GVariant *changed = NULL;
+    GVariant *invalidated = NULL;
+    g_variant_get(parameters, "(&s@a{sv}@as)", &changed_interface, &changed, &invalidated);
+
+    if (g_strcmp0(changed_interface, NM_IFACE) == 0)
+    {
+        gboolean has_invalidated = g_variant_n_children(invalidated) > 0;
+
+        if (has_invalidated ||
+            dict_has_key(changed, "PrimaryConnection") ||
+            dict_has_key(changed, "ActiveConnections"))
+        {
+            request_primary_connection_status(network);
+        }
+
+        GVariant *enabled_v = g_variant_lookup_value(changed, "WirelessEnabled",
+                                                     G_VARIANT_TYPE_BOOLEAN);
+        if (enabled_v != NULL)
+        {
+            report_wifi_enabled(network, g_variant_get_boolean(enabled_v));
+            g_variant_unref(enabled_v);
+        }
+        else if (has_invalidated)
+        {
+            request_wifi_enabled_state(network);
+        }
+    }
+
+    g_variant_unref(changed);
+    g_variant_unref(invalidated);
 }
 
 /* Any active connection changed state (activating -> activated, ...).
@@ -645,6 +723,19 @@ on_active_connection_state_changed(GDBusConnection *connection, const gchar *sen
     (void) parameters;
 
     request_primary_connection_status(network);
+}
+
+void
+network_request_wifi_enabled(ExtrasMenuNetwork *network)
+{
+    request_wifi_enabled_state(network);
+}
+
+void
+network_refresh_status(ExtrasMenuNetwork *network)
+{
+    request_primary_connection_status(network);
+    request_wifi_enabled_state(network);
 }
 
 void

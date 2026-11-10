@@ -140,6 +140,23 @@ struct _ExtrasMenuNetwork
      * kind of profile (WPA2-PSK, WPA3-SAE, WEP, OWE, ...) without
      * widening the public API. */
     GHashTable *security_by_ssid;
+
+    /* Subscription to NameOwnerChanged for NetworkManager's own bus
+     * name. When NetworkManager (re)appears -- it was restarted, or
+     * started after the panel did -- the Wi-Fi device is looked up
+     * again and the status re-read; without this, a NetworkManager that
+     * wasn't up yet at start (or restarted later) left the Wi-Fi list
+     * dead until the panel was restarted. */
+    guint nm_owner_subscription_id;
+
+    /* What the status and radio callbacks were last told. NetworkManager
+     * announces many changes that leave the outcome the same; a report
+     * identical to the previous one is not passed on. */
+    gboolean status_reported;
+    ExtrasMenuNetworkKind last_status_kind;
+    gchar *last_status_ip;
+    gboolean wifi_enabled_reported;
+    gboolean last_wifi_enabled;
 };
 
 /* A cancelled GDBus call still runs its callback, with this error.
@@ -192,6 +209,14 @@ network_request_ap_list(ExtrasMenuNetwork *network);
 
 void
 network_start_primary_connection_tracking(ExtrasMenuNetwork *network);
+
+/* Re-reads the connection kind and the Wi-Fi radio state. */
+void
+network_refresh_status(ExtrasMenuNetwork *network);
+
+/* Re-reads just the Wi-Fi radio state. */
+void
+network_request_wifi_enabled(ExtrasMenuNetwork *network);
 
 /* --- defined in network-connect.c --- */
 

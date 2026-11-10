@@ -23,6 +23,36 @@ on_ap_refresh_timeout(gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+/* FALSE if a device PropertiesChanged only reports properties that
+ * can't change what the Wi-Fi list shows. Anything not recognised
+ * counts as relevant. */
+static gboolean
+device_props_change_is_relevant(GVariant *parameters)
+{
+    if (parameters == NULL || !g_variant_is_of_type(parameters, G_VARIANT_TYPE("(sa{sv}as)")))
+        return TRUE;
+
+    GVariant *changed = g_variant_get_child_value(parameters, 1);
+    GVariant *invalidated = g_variant_get_child_value(parameters, 2);
+    gboolean relevant = g_variant_n_children(invalidated) > 0;
+
+    GVariantIter iter;
+    const gchar *key = NULL;
+    GVariant *value = NULL;
+
+    g_variant_iter_init(&iter, changed);
+    while (!relevant && g_variant_iter_next(&iter, "{&sv}", &key, &value))
+    {
+        if (strcmp(key, "Bitrate") != 0)
+            relevant = TRUE;
+        g_variant_unref(value);
+    }
+
+    g_variant_unref(changed);
+    g_variant_unref(invalidated);
+    return relevant;
+}
+
 static void
 on_ap_list_relevant_signal(GDBusConnection *connection, const gchar *sender_name,
                             const gchar *object_path, const gchar *interface_name,
@@ -34,8 +64,14 @@ on_ap_list_relevant_signal(GDBusConnection *connection, const gchar *sender_name
     (void) sender_name;
     (void) object_path;
     (void) interface_name;
-    (void) signal_name;
-    (void) parameters;
+
+    /* A device's PropertiesChanged also fires for things the list
+     * doesn't show. The bit rate of the current link is the usual one
+     * (it moves with the signal while connected), and each would
+     * otherwise cost a fetch of every access point. */
+    if (g_strcmp0(signal_name, "PropertiesChanged") == 0 &&
+        !device_props_change_is_relevant(parameters))
+        return;
 
     /* Any of: device PropertiesChanged (covers ActiveAccessPoint
      * changing), AccessPointAdded, AccessPointRemoved -- all mean the
@@ -54,6 +90,38 @@ on_ap_list_relevant_signal(GDBusConnection *connection, const gchar *sender_name
 }
 
 /* --- finding the first Wi-Fi device, one device at a time --------------- */
+
+/* Lets go of the Wi-Fi device found earlier: its signal subscriptions
+ * and path, and any list fetch or refresh that was meant for it. Used
+ * before a device is (re)found, so a second discovery never leaves the
+ * first one's subscriptions behind. */
+static void
+forget_wifi_device(ExtrasMenuNetwork *network)
+{
+    if (network->system_bus != NULL)
+    {
+        if (network->wifi_device_props_subscription_id != 0)
+            g_dbus_connection_signal_unsubscribe(network->system_bus, network->wifi_device_props_subscription_id);
+        if (network->ap_added_subscription_id != 0)
+            g_dbus_connection_signal_unsubscribe(network->system_bus, network->ap_added_subscription_id);
+        if (network->ap_removed_subscription_id != 0)
+            g_dbus_connection_signal_unsubscribe(network->system_bus, network->ap_removed_subscription_id);
+    }
+
+    network->wifi_device_props_subscription_id = 0;
+    network->ap_added_subscription_id = 0;
+    network->ap_removed_subscription_id = 0;
+
+    g_clear_pointer(&network->wifi_device_path, g_free);
+
+    network->ap_generation++; /* fetches in flight belong to the old device */
+
+    if (network->ap_refresh_source_id != 0)
+    {
+        g_source_remove(network->ap_refresh_source_id);
+        network->ap_refresh_source_id = 0;
+    }
+}
 
 typedef struct
 {
@@ -92,6 +160,10 @@ on_device_type_finished(GObject *source, GAsyncResult *result, gpointer user_dat
 
     if (device_type == NM_DEVICE_TYPE_WIFI)
     {
+        /* Normally nothing to forget; but if the device was looked up
+         * twice at about the same time, the first result goes. */
+        forget_wifi_device(ctx->network);
+
         ctx->network->wifi_device_path = g_strdup(ctx->paths[ctx->index]);
 
         /* Subscribe to everything that can make the AP list stale,
@@ -220,6 +292,33 @@ find_wifi_device(ExtrasMenuNetwork *network)
         on_get_devices_finished, network);
 }
 
+/* NetworkManager took the bus name, or gave it up. When it is there
+ * (again), everything learned from the previous one is stale: the Wi-Fi
+ * device is looked up anew and the status re-read. */
+static void
+on_nm_owner_changed(GDBusConnection *connection, const gchar *sender_name,
+                     const gchar *object_path, const gchar *interface_name,
+                     const gchar *signal_name, GVariant *parameters,
+                     gpointer user_data)
+{
+    ExtrasMenuNetwork *network = user_data;
+    (void) connection;
+    (void) sender_name;
+    (void) object_path;
+    (void) interface_name;
+    (void) signal_name;
+
+    const gchar *name = NULL, *old_owner = NULL, *new_owner = NULL;
+    g_variant_get(parameters, "(&s&s&s)", &name, &old_owner, &new_owner);
+
+    if (new_owner[0] == '\0')
+        return; /* gone; nothing to do until it is back */
+
+    forget_wifi_device(network);
+    find_wifi_device(network);
+    network_refresh_status(network);
+}
+
 /* --- bus connection lifecycle --------------------------------------------- */
 
 static void
@@ -252,6 +351,12 @@ on_bus_get_finished(GObject *source, GAsyncResult *result, gpointer user_data)
         return;
     }
 
+    network->nm_owner_subscription_id = g_dbus_connection_signal_subscribe(
+        network->system_bus, "org.freedesktop.DBus",
+        "org.freedesktop.DBus", "NameOwnerChanged",
+        "/org/freedesktop/DBus", NM_BUS_NAME, G_DBUS_SIGNAL_FLAGS_NONE,
+        on_nm_owner_changed, network, NULL);
+
     find_wifi_device(network);
     network_start_primary_connection_tracking(network);
 }
@@ -281,6 +386,32 @@ extras_menu_network_new(ExtrasMenuNetworkListChangedFunc list_changed_callback,
     return network;
 }
 
+/* The Set call finished. If it was refused, NetworkManager announces
+ * nothing, and the toggle would stay where the user put it while the
+ * radio didn't change. Reading the state back (and letting that
+ * report through even if it equals the previous one) puts it right
+ * either way. */
+static void
+on_set_wifi_enabled_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    ExtrasMenuNetwork *network = user_data;
+    GError *error = NULL;
+
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (reply == NULL && call_was_cancelled(error))
+    {
+        g_clear_error(&error);
+        return;
+    }
+
+    if (reply != NULL)
+        g_variant_unref(reply);
+    g_clear_error(&error);
+
+    network->wifi_enabled_reported = FALSE;
+    network_request_wifi_enabled(network);
+}
+
 void
 extras_menu_network_set_wifi_enabled(ExtrasMenuNetwork *network, gboolean enabled)
 {
@@ -296,9 +427,9 @@ extras_menu_network_set_wifi_enabled(ExtrasMenuNetwork *network, gboolean enable
         g_variant_new("(ssv)", NM_IFACE, "WirelessEnabled", g_variant_new_boolean(enabled)),
         NULL,
         G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL,
-        NULL, NULL); /* fire-and-forget: PropertiesChanged brings the
-                       * confirmed state back to us either way */
+        -1, network->cancellable,
+        on_set_wifi_enabled_finished, network); /* PropertiesChanged brings the
+                                                  * confirmed state back too */
 }
 
 void
@@ -384,6 +515,8 @@ extras_menu_network_free(ExtrasMenuNetwork *network)
             g_dbus_connection_signal_unsubscribe(network->system_bus, network->ap_added_subscription_id);
         if (network->ap_removed_subscription_id != 0)
             g_dbus_connection_signal_unsubscribe(network->system_bus, network->ap_removed_subscription_id);
+        if (network->nm_owner_subscription_id != 0)
+            g_dbus_connection_signal_unsubscribe(network->system_bus, network->nm_owner_subscription_id);
         if (network->nm_props_subscription_id != 0)
             g_dbus_connection_signal_unsubscribe(network->system_bus, network->nm_props_subscription_id);
         if (network->active_state_subscription_id != 0)
@@ -395,6 +528,7 @@ extras_menu_network_free(ExtrasMenuNetwork *network)
 
     g_free(network->wifi_device_path);
     g_free(network->watched_ip4config_path);
+    g_free(network->last_status_ip);
     g_clear_pointer(&network->security_by_ssid, g_hash_table_destroy);
     g_clear_object(&network->cancellable);
     g_free(network);
