@@ -19,11 +19,17 @@ G_BEGIN_DECLS
  * file, so never rename one -- a user's saved layout would stop
  * matching it. */
 #define EXTRAS_MENU_PILL_NETWORK   "network"
-#define EXTRAS_MENU_PILL_QUALITY   "quality"
+#define EXTRAS_MENU_PILL_NIGHT_LIGHT "night-light"
 #define EXTRAS_MENU_PILL_BLUETOOTH "bluetooth"
 #define EXTRAS_MENU_PILL_BALANCED  "balanced"
 #define EXTRAS_MENU_PILL_DARK_MODE "dark-mode"
 #define EXTRAS_MENU_PILL_AIRPLANE  "airplane"
+
+/* The id the Night Light pill's cell had while it was still the empty
+ * "quality" placeholder. A layout saved back then holds this id, so
+ * loading one must read it as EXTRAS_MENU_PILL_NIGHT_LIGHT (see
+ * pill-layout-config.c). Nothing else should use it. */
+#define EXTRAS_MENU_PILL_LEGACY_QUALITY "quality"
 
 /* What the preferences editor needs to show a pill. The structs live in
  * a static table: pointers to them never need freeing. */
@@ -74,7 +80,7 @@ ExtrasMenuPillShape extras_menu_pill_layout_get_shape(void);
  * the saved one. Leaves the saved pill list exactly as it is. */
 gboolean extras_menu_pill_layout_set_shape(ExtrasMenuPillShape shape, GError **error);
 
-/* Every pill, in the order the plugin shipped with (Wi-Fi, quality,
+/* Every pill, in the order the plugin shipped with (Wi-Fi, night light,
  * Bluetooth, balanced, dark mode, aeroplane mode). */
 GPtrArray *extras_menu_pill_layout_defaults(void);
 

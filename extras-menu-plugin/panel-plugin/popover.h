@@ -71,9 +71,8 @@ G_BEGIN_DECLS
  *
  * The pills are built here but wired up elsewhere: the Bluetooth and
  * network pills through the out-params above, the others (Aeroplane
- * Mode, Balanced, Dark Mode) by their modules in pills/, which find
- * their pill with extras_menu_popover_get_pill(). The remaining one
- * (Quality) is still purely visual for now.
+ * Mode, Balanced, Dark Mode, Night Light) by their modules in pills/,
+ * which find their pill with extras_menu_popover_get_pill().
  */
 GtkWidget *extras_menu_popover_content_new(GtkWidget **battery_label,
                                             GtkWidget **battery_icon,

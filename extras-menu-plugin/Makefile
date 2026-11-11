@@ -6,7 +6,7 @@ PLUGIN_LIBDIR = $(PREFIX)/lib/xfce4/panel/plugins
 DESKTOP_DIR = $(PREFIX)/share/xfce4/panel/plugins
 
 PKG_CONFIG = pkg-config
-PKGS = gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 libxfce4util-1.0 libxfconf-0 libpulse libpulse-mainloop-glib gio-2.0
+PKGS = gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 libxfce4util-1.0 libxfconf-0 libpulse libpulse-mainloop-glib gio-2.0 x11 xrandr
 
 CFLAGS += -Wall -Wextra -O2 $(shell $(PKG_CONFIG) --cflags $(PKGS))
 LIBS = $(shell $(PKG_CONFIG) --libs $(PKGS))
@@ -57,7 +57,9 @@ SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC
           $(SRC_DIR)/preferences/pill-layout-config.c \
           $(SRC_DIR)/preferences/pill-layout-page.c \
           $(SRC_DIR)/preferences/slider-layout-config.c \
-          $(SRC_DIR)/preferences/slider-layout-page.c
+          $(SRC_DIR)/preferences/slider-layout-page.c \
+          $(SRC_DIR)/preferences/night-light-config.c \
+          $(SRC_DIR)/preferences/night-light-page.c
 
 # Every pill module lives in pills/; new ones are picked up automatically.
 SOURCES += $(wildcard $(SRC_DIR)/pills/*.c)

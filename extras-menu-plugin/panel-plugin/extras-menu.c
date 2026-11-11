@@ -160,6 +160,10 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
     extras_menu_dark_mode_free(plugin->dark_mode);
     plugin->dark_mode = NULL;
 
+    /* Puts the screen's colors back if Night Light is on. */
+    extras_menu_night_light_free(plugin->night_light);
+    plugin->night_light = NULL;
+
     if (plugin->slider_layout_listener != 0)
     {
         extras_menu_slider_layout_remove_listener(plugin->slider_layout_listener);
@@ -333,6 +337,14 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     GtkWidget *dark_mode_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_DARK_MODE);
     if (dark_mode_pill != NULL)
         plugin->dark_mode = extras_menu_dark_mode_new(dark_mode_pill, on_dark_mode_message, plugin);
+
+    /* --- Night Light pill: warms the screen's colors and back again.
+     * It talks to the X server on its own and reads its temperature
+     * and transition time from the saved settings, so it needs nothing
+     * from the backends above. --- */
+    GtkWidget *night_light_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_NIGHT_LIGHT);
+    if (night_light_pill != NULL)
+        plugin->night_light = extras_menu_night_light_new(night_light_pill);
 
     g_signal_connect(panel_plugin, "free-data",
                       G_CALLBACK(on_plugin_free_data), plugin);

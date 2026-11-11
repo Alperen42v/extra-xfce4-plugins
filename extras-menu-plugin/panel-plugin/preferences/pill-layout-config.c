@@ -10,18 +10,18 @@
  * here (plus its id in the header, EXTRAS_MENU_PILL_COUNT, and building
  * the widget in popover.c). */
 static const ExtrasMenuPillInfo pills[] = {
-    { EXTRAS_MENU_PILL_NETWORK,   "Wi-Fi / Ethernet", "network-wireless-symbolic",
-      "Turns Wi-Fi on or off; the arrow lists nearby networks." },
-    { EXTRAS_MENU_PILL_QUALITY,   "Quality",          "preferences-system-symbolic",
-      "Placeholder button -- doesn't do anything yet." },
-    { EXTRAS_MENU_PILL_BLUETOOTH, "Bluetooth",        "bluetooth-symbolic",
-      "Turns Bluetooth on or off; the arrow lists devices." },
-    { EXTRAS_MENU_PILL_BALANCED,  "Balanced",         "weather-clear-symbolic",
-      "Shows the power profile; click to switch between Power Saver, Balanced and Performance." },
-    { EXTRAS_MENU_PILL_DARK_MODE, "Dark Mode",        "weather-clear-night-symbolic",
-      "Lit while a dark theme is used; click to switch to the theme's dark or light version." },
-    { EXTRAS_MENU_PILL_AIRPLANE,  "Airplane Mode",   "airplane-mode-symbolic",
-      "Turns Wi-Fi and Bluetooth off together, and back on again." },
+    { EXTRAS_MENU_PILL_NETWORK,     "Wi-Fi / Ethernet", "network-wireless-symbolic",
+"Turns Wi-Fi on or off; the arrow lists nearby networks." },
+    { EXTRAS_MENU_PILL_NIGHT_LIGHT, "Night Light",      "night-light-symbolic",
+"Makes the screen's colors warmer (less blue) for the evening; its temperature and transition time are set in the Night light section." },
+    { EXTRAS_MENU_PILL_BLUETOOTH,   "Bluetooth",        "bluetooth-symbolic",
+"Turns Bluetooth on or off; the arrow lists devices." },
+    { EXTRAS_MENU_PILL_BALANCED,    "Balanced",         "weather-clear-symbolic",
+"Shows the power profile; click to switch between Power Saver, Balanced and Performance." },
+    { EXTRAS_MENU_PILL_DARK_MODE,   "Dark Mode",        "weather-clear-night-symbolic",
+"Lit while a dark theme is used; click to switch to the theme's dark or light version." },
+    { EXTRAS_MENU_PILL_AIRPLANE,    "Airplane Mode",    "airplane-mode-symbolic",
+"Turns Wi-Fi and Bluetooth off together, and back on again." },
 };
 
 G_STATIC_ASSERT(G_N_ELEMENTS(pills) == EXTRAS_MENU_PILL_COUNT);

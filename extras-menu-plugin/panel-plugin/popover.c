@@ -355,33 +355,6 @@ extras_menu_make_split_pill(const gchar *icon_name,
     return outer;
 }
 
-/* Simple single-button pill with a trailing chevron, no split
- * click-regions -- used for placeholder entries like "quality" that
- * don't yet have real behavior wired up (unlike the network pill,
- * which needs the on/off vs. expand-list distinction from
- * extras_menu_make_split_pill above). */
-static GtkWidget *
-extras_menu_make_pill_expander(const gchar *icon_name, const gchar *label_text)
-{
-    GtkWidget *button = gtk_button_new();
-    extras_menu_apply_css(button);
-    gtk_style_context_add_class(gtk_widget_get_style_context(button), "extras-menu-pill-wide");
-
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    GtkWidget *icon = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
-    GtkWidget *label = gtk_label_new(label_text);
-    gtk_label_set_xalign(GTK_LABEL(label), 0.0);
-    GtkWidget *chevron = gtk_image_new_from_icon_name("pan-end-symbolic", GTK_ICON_SIZE_BUTTON);
-
-    gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), label, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(box), chevron, FALSE, FALSE, 0);
-
-    gtk_container_add(GTK_CONTAINER(button), box);
-
-    return button;
-}
-
 /* A styled, empty icon button for the top bar. Public (see popover.h)
  * because the quick-action buttons are created by quick-actions.c --
  * they come and go with the user's settings -- but must look exactly
@@ -967,7 +940,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
     if (network_spinner != NULL)
         *network_spinner = network_spin;
 
-    GtkWidget *quality = extras_menu_make_pill_expander("preferences-system-symbolic", "");
+    GtkWidget *night_light = extras_menu_make_pill_toggle("night-light-symbolic", "Night Light", FALSE, FALSE);
 
     /* Starts unchecked regardless of the mockup's default -- the real
      * state comes from the Bluetooth backend shortly after the
@@ -1002,7 +975,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
         const gchar *id;
     } pill_widgets[] = {
         { network_pill, EXTRAS_MENU_PILL_NETWORK },
-        { quality,   EXTRAS_MENU_PILL_QUALITY   },
+        { night_light, EXTRAS_MENU_PILL_NIGHT_LIGHT },
         { bluetooth, EXTRAS_MENU_PILL_BLUETOOTH },
         { balanced,  EXTRAS_MENU_PILL_BALANCED  },
         { dark_mode, EXTRAS_MENU_PILL_DARK_MODE },

@@ -12,6 +12,7 @@
 #include "network/network.h"
 #include "pills/airplane-mode.h"
 #include "pills/dark-mode.h"
+#include "pills/night-light.h"
 #include "pills/power-profile.h"
 
 G_BEGIN_DECLS
@@ -287,6 +288,13 @@ struct _ExtrasMenuPlugin
      * owns it; NULL until the dropdown's content exists. Appended last,
      * like the fields above. */
     ExtrasMenuDropdownStyle *dropdown_style;
+
+    /* The Night Light pill's logic (pills/night-light.c): warms the
+     * screen's colors and back again, with a smooth transition. Owns
+     * its own state and holds on to the pill itself, so this one
+     * pointer is all that is needed here. NULL if the pill widget
+     * wasn't found. Appended last, like the fields above. */
+    ExtrasMenuNightLight *night_light;
 };
 
 struct _ExtrasMenuPluginClass
