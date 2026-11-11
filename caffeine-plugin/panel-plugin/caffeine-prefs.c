@@ -16,6 +16,73 @@
 #define XFCONF_PROP_SCREEN_OFF_MODE      "/screen-off-mode"     /* int, CaffeineScreenOffMode */
 #define XFCONF_PROP_SCREEN_OFF_CUSTOM_MIN "/screen-off-custom-minutes" /* uint, >= 1 */
 
+/* Upper bound for the custom minute fields; matches the spin buttons and
+ * keeps (minutes * 60) far away from guint overflow even if a hand-edited
+ * xfconf value is absurd. */
+#define MAX_CUSTOM_MINUTES 999
+
+/* ---------------------------------------------------------------------- */
+/* Validation of stored values                                            */
+/* ---------------------------------------------------------------------- */
+
+/* xfconf values can be edited by hand or come from another version of the
+ * plugin, so anything read back is checked before being cast to an enum. */
+
+static guint
+sanitize_minutes (guint value, guint fallback)
+{
+    if (value == 0)
+        return fallback;
+    return MIN (value, (guint) MAX_CUSTOM_MINUTES);
+}
+
+static CaffeineLockCycleMode
+sanitize_lock_mode (gint value)
+{
+    switch (value)
+    {
+        case CAFFEINE_LOCK_CYCLE_15MIN:
+        case CAFFEINE_LOCK_CYCLE_30MIN:
+        case CAFFEINE_LOCK_CYCLE_60MIN:
+        case CAFFEINE_LOCK_CYCLE_CUSTOM:
+            return (CaffeineLockCycleMode) value;
+        case CAFFEINE_LOCK_CYCLE_NEVER:
+        default:
+            return CAFFEINE_LOCK_CYCLE_NEVER;
+    }
+}
+
+static CaffeineScreenOffMode
+sanitize_screen_off_mode (gint value)
+{
+    switch (value)
+    {
+        case CAFFEINE_SCREEN_OFF_5MIN:
+        case CAFFEINE_SCREEN_OFF_10MIN:
+        case CAFFEINE_SCREEN_OFF_15MIN:
+        case CAFFEINE_SCREEN_OFF_30MIN:
+        case CAFFEINE_SCREEN_OFF_CUSTOM:
+            return (CaffeineScreenOffMode) value;
+        case CAFFEINE_SCREEN_OFF_NEVER:
+        default:
+            return CAFFEINE_SCREEN_OFF_15MIN; /* same default as a fresh install */
+    }
+}
+
+static CaffeineIconTheme
+sanitize_icon_theme (gint value)
+{
+    switch (value)
+    {
+        case CAFFEINE_ICON_THEME_LIGHT:
+        case CAFFEINE_ICON_THEME_DARK:
+            return (CaffeineIconTheme) value;
+        case CAFFEINE_ICON_THEME_AUTO:
+        default:
+            return CAFFEINE_ICON_THEME_AUTO;
+    }
+}
+
 /* ---------------------------------------------------------------------- */
 /* Settings resolution                                                    */
 /* ---------------------------------------------------------------------- */
@@ -32,13 +99,15 @@ caffeine_settings_get_interval_minutes (const CaffeineSettings *settings)
             return 0;
 
         case CAFFEINE_LOCK_CYCLE_CUSTOM:
-            return settings->custom_minutes > 0 ? settings->custom_minutes : 0;
+            return settings->custom_minutes > 0 ? MIN (settings->custom_minutes, (guint) MAX_CUSTOM_MINUTES) : 0;
 
         case CAFFEINE_LOCK_CYCLE_15MIN:
         case CAFFEINE_LOCK_CYCLE_30MIN:
         case CAFFEINE_LOCK_CYCLE_60MIN:
-        default:
             return (guint) settings->mode;
+
+        default:
+            return 0; /* unknown value: treat as disabled rather than cast it */
     }
 }
 
@@ -51,7 +120,8 @@ caffeine_settings_get_screen_off_interval_minutes (const CaffeineSettings *setti
     switch (settings->screen_off_mode)
     {
         case CAFFEINE_SCREEN_OFF_CUSTOM:
-            return settings->screen_off_custom_minutes > 0 ? settings->screen_off_custom_minutes : 0;
+            return settings->screen_off_custom_minutes > 0
+                       ? MIN (settings->screen_off_custom_minutes, (guint) MAX_CUSTOM_MINUTES) : 0;
 
         case CAFFEINE_SCREEN_OFF_5MIN:
         case CAFFEINE_SCREEN_OFF_10MIN:
@@ -73,7 +143,6 @@ void
 caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
 {
     XfconfChannel *channel;
-    gint           mode_val;
 
     /* sane defaults if xfconf isn't available or nothing was saved yet */
     settings->mode = CAFFEINE_LOCK_CYCLE_NEVER;
@@ -94,31 +163,27 @@ caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_name)
     if (channel == NULL)
         return;
 
-    mode_val = xfconf_channel_get_int (channel, XFCONF_PROP_LOCK_CYCLE_MODE,
-                                        (gint) CAFFEINE_LOCK_CYCLE_NEVER);
-    settings->mode = (CaffeineLockCycleMode) mode_val;
+    settings->mode = sanitize_lock_mode (
+        xfconf_channel_get_int (channel, XFCONF_PROP_LOCK_CYCLE_MODE, (gint) CAFFEINE_LOCK_CYCLE_NEVER));
 
-    settings->custom_minutes = xfconf_channel_get_uint (channel, XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN, 60);
-    if (settings->custom_minutes == 0)
-        settings->custom_minutes = 60;
+    settings->custom_minutes = sanitize_minutes (
+        xfconf_channel_get_uint (channel, XFCONF_PROP_LOCK_CYCLE_CUSTOM_MIN, 60), 60);
 
     settings->icon_source = (CaffeineIconSource) xfconf_channel_get_int (
         channel, XFCONF_PROP_ICON_SOURCE, (gint) CAFFEINE_ICON_SOURCE_SYSTEM);
     if (settings->icon_source != CAFFEINE_ICON_SOURCE_PLUGIN)
         settings->icon_source = CAFFEINE_ICON_SOURCE_SYSTEM; /* ignore unknown values */
 
-    settings->icon_theme = (CaffeineIconTheme) xfconf_channel_get_int (
-        channel, XFCONF_PROP_ICON_THEME, (gint) CAFFEINE_ICON_THEME_AUTO);
+    settings->icon_theme = sanitize_icon_theme (
+        xfconf_channel_get_int (channel, XFCONF_PROP_ICON_THEME, (gint) CAFFEINE_ICON_THEME_AUTO));
 
     settings->screen_off_enabled = xfconf_channel_get_bool (channel, XFCONF_PROP_SCREEN_OFF_ENABLED, FALSE);
 
-    settings->screen_off_mode = (CaffeineScreenOffMode) xfconf_channel_get_int (
-        channel, XFCONF_PROP_SCREEN_OFF_MODE, (gint) CAFFEINE_SCREEN_OFF_15MIN);
+    settings->screen_off_mode = sanitize_screen_off_mode (
+        xfconf_channel_get_int (channel, XFCONF_PROP_SCREEN_OFF_MODE, (gint) CAFFEINE_SCREEN_OFF_15MIN));
 
-    settings->screen_off_custom_minutes =
-        xfconf_channel_get_uint (channel, XFCONF_PROP_SCREEN_OFF_CUSTOM_MIN, 15);
-    if (settings->screen_off_custom_minutes == 0)
-        settings->screen_off_custom_minutes = 15;
+    settings->screen_off_custom_minutes = sanitize_minutes (
+        xfconf_channel_get_uint (channel, XFCONF_PROP_SCREEN_OFF_CUSTOM_MIN, 15), 15);
 }
 
 void
@@ -143,6 +208,19 @@ caffeine_settings_save (const CaffeineSettings *settings, const gchar *channel_n
     xfconf_channel_set_bool (channel, XFCONF_PROP_SCREEN_OFF_ENABLED, settings->screen_off_enabled);
     xfconf_channel_set_int (channel, XFCONF_PROP_SCREEN_OFF_MODE, (gint) settings->screen_off_mode);
     xfconf_channel_set_uint (channel, XFCONF_PROP_SCREEN_OFF_CUSTOM_MIN, settings->screen_off_custom_minutes);
+}
+
+void
+caffeine_settings_remove (const gchar *channel_name)
+{
+    XfconfChannel *channel;
+
+    if (channel_name == NULL || !xfconf_init (NULL))
+        return;
+
+    channel = xfconf_channel_get (channel_name);
+    if (channel != NULL)
+        xfconf_channel_reset_property (channel, "/", TRUE);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -310,7 +388,7 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     gtk_box_pack_start (GTK_BOX (vbox), custom_hbox, FALSE, FALSE, 0);
     gtk_widget_set_margin_start (custom_hbox, 24);
 
-    w.spin_custom = gtk_spin_button_new_with_range (1, 999, 1);
+    w.spin_custom = gtk_spin_button_new_with_range (1, MAX_CUSTOM_MINUTES, 1);
     gtk_box_pack_start (GTK_BOX (custom_hbox), w.spin_custom, FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (custom_hbox), gtk_label_new (_("minutes")), FALSE, FALSE, 0);
 
@@ -392,7 +470,7 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
         gtk_box_pack_start (GTK_BOX (w.screen_off_box), screen_off_custom_hbox, FALSE, FALSE, 0);
         gtk_widget_set_margin_start (screen_off_custom_hbox, 24);
 
-        w.spin_screen_off_custom = gtk_spin_button_new_with_range (1, 999, 1);
+        w.spin_screen_off_custom = gtk_spin_button_new_with_range (1, MAX_CUSTOM_MINUTES, 1);
         gtk_box_pack_start (GTK_BOX (screen_off_custom_hbox), w.spin_screen_off_custom, FALSE, FALSE, 0);
         gtk_box_pack_start (GTK_BOX (screen_off_custom_hbox), gtk_label_new (_("minutes")), FALSE, FALSE, 0);
     }
@@ -478,10 +556,22 @@ caffeine_show_preferences (XfcePanelPlugin *plugin, CaffeineSettings *settings,
     /* set after show_all(), which only affects visibility not sensitivity */
     gtk_widget_set_sensitive (w.screen_off_box, settings->screen_off_enabled);
 
+    gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_OK);
+
+    /* keeps the user from removing the plugin from its own menu while
+     * the dialog is open (the dialog's callbacks point into this stack
+     * frame and the plugin's data) */
+    xfce_panel_plugin_block_menu (plugin);
     response = gtk_dialog_run (GTK_DIALOG (dialog));
+    xfce_panel_plugin_unblock_menu (plugin);
 
     if (response == GTK_RESPONSE_OK)
     {
+        /* a number typed into a spin button is only committed on
+         * Enter/focus-out; make sure it is read as shown */
+        gtk_spin_button_update (GTK_SPIN_BUTTON (w.spin_custom));
+        gtk_spin_button_update (GTK_SPIN_BUTTON (w.spin_screen_off_custom));
+
         if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_15)))
             settings->mode = CAFFEINE_LOCK_CYCLE_15MIN;
         else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w.radio_30)))

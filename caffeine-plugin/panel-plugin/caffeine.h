@@ -91,7 +91,8 @@ typedef struct
     gchar     *pm_path;
     gchar     *pm_iface;
 
-    guint      animation_timer_id;
+    guint      animation_timer_id; /* 0 = not running. Only runs while something actually
+                                    * animates (Cairo steam, or an icon with 2+ ON frames) */
     gdouble    animation_phase; /* 0..1, drives the steam wobble (Cairo fallback only) */
 
     /* custom user-provided PNG icons - NULL/0 means "not provided",
@@ -102,10 +103,20 @@ typedef struct
     gint              icon_pixel_size;  /* panel_size minus the button's theme padding/border:
                                           * the size icons are loaded and drawn at */
 
+    /* what the current `icons` set was loaded for - lets
+     * caffeine_reload_icons() skip reloads that would produce the same
+     * result (startup, hover-triggered style updates, repeated signals) */
+    gint               icons_loaded_size;
+    CaffeineIconSource icons_loaded_source;
+    CaffeineIconTheme  icons_loaded_variant; /* resolved LIGHT/DARK, never AUTO */
+    GdkRGBA            icons_loaded_fg;      /* button foreground, matters for SYSTEM symbolic icons */
+    guint              icon_reload_timer_id; /* debounces bursts of icon-theme "changed" */
+
     /* preferences: self-triggered lock+blank cycle while caffeine is on */
     CaffeineSettings settings;
     gchar     *xfconf_channel_name; /* unique per plugin instance, for xfconf */
     guint      lock_cycle_timer_id; /* 0 = no cycle running (mode NEVER or caffeine off) */
+    guint      blank_timer_id;      /* 0 = no "blank monitor after lock" pending */
 
     /* preferences: screen-off-only timer, independent of the lock cycle */
     guint      screen_off_timer_id; /* 0 = no timer running (disabled or caffeine off) */

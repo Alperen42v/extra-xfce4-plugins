@@ -7,15 +7,44 @@
 
 #include <math.h>
 #include <gio/gio.h>
-#include <glib/gstdio.h>
 
 #include "caffeine.h"
 #include "caffeine-prefs.h"
 #include "caffeine-icons.h"
 
-#define BORDER 4
-#define ANIM_INTERVAL_MS 60   /* ~16 fps */
-#define LOCK_TO_BLANK_DELAY_SEC 7   /* gap between xflock4 and forcing DPMS off */
+#define ANIM_INTERVAL_MS 60          /* ~16 fps */
+#define LOCK_TO_BLANK_DELAY_SEC 7    /* gap between xflock4 and forcing DPMS off */
+#define DBUS_CALL_TIMEOUT_MS 2000    /* Inhibit/UnInhibit run on the panel's main loop: keep a hung service cheap */
+#define ICON_RELOAD_DEBOUNCE_MS 200  /* icon theme "changed" tends to arrive in bursts */
+
+/* ---------------------------------------------------------------------- */
+/* Small helpers                                                          */
+/* ---------------------------------------------------------------------- */
+
+/* Removes a GSource if it is running and marks the id as unused. */
+static void
+clear_source (guint *source_id)
+{
+    if (*source_id != 0)
+    {
+        g_source_remove (*source_id);
+        *source_id = 0;
+    }
+}
+
+/* Fire-and-forget command; GLib reaps the child itself. */
+static void
+run_command (const gchar *command_line, const gchar *purpose)
+{
+    GError *error = NULL;
+
+    if (!g_spawn_command_line_async (command_line, &error))
+    {
+        g_warning ("Caffeine: failed to %s via '%s': %s",
+                   purpose, command_line, error->message);
+        g_clear_error (&error);
+    }
+}
 
 /* ---------------------------------------------------------------------- */
 /* DBus screensaver inhibit helpers                                       */
@@ -27,6 +56,10 @@
  * mirror its bus name into its object path). We inhibit both the
  * screensaver and the power manager's DPMS independently, and remember
  * which target worked for each so UnInhibit hits the same one.
+ *
+ * Calls use NO_AUTO_START: if a backend isn't already running we want a
+ * quick "no", not Caffeine silently launching some other desktop's
+ * screensaver daemon just to try it.
  */
 typedef struct
 {
@@ -73,8 +106,8 @@ try_inhibit (GDBusConnection *conn, const InhibitTarget *targets,
                                                               "xfce4-caffeine-plugin",
                                                               "User requested to keep the screen awake"),
                                                G_VARIANT_TYPE ("(u)"),
-                                               G_DBUS_CALL_FLAGS_NONE,
-                                               3000, NULL, &error);
+                                               G_DBUS_CALL_FLAGS_NO_AUTO_START,
+                                               DBUS_CALL_TIMEOUT_MS, NULL, &error);
 
         if (result != NULL)
         {
@@ -101,20 +134,24 @@ static void
 try_uninhibit (GDBusConnection *conn, guint cookie,
                const gchar *backend, const gchar *object_path, const gchar *interface_name)
 {
-    GError *error = NULL;
+    GVariant *result;
+    GError   *error = NULL;
 
     if (cookie == 0 || backend == NULL || object_path == NULL || interface_name == NULL)
         return;
 
-    g_dbus_connection_call_sync (conn,
-                                  backend,
-                                  object_path,
-                                  interface_name,
-                                  "UnInhibit",
-                                  g_variant_new ("(u)", cookie),
-                                  NULL,
-                                  G_DBUS_CALL_FLAGS_NONE,
-                                  3000, NULL, &error);
+    result = g_dbus_connection_call_sync (conn,
+                                           backend,
+                                           object_path,
+                                           interface_name,
+                                           "UnInhibit",
+                                           g_variant_new ("(u)", cookie),
+                                           NULL,
+                                           G_DBUS_CALL_FLAGS_NO_AUTO_START,
+                                           DBUS_CALL_TIMEOUT_MS, NULL, &error);
+
+    if (result != NULL)
+        g_variant_unref (result);
 
     if (error != NULL)
     {
@@ -122,6 +159,51 @@ try_uninhibit (GDBusConnection *conn, guint cookie,
                    backend, object_path, interface_name, error->message);
         g_clear_error (&error);
     }
+}
+
+/* Forgets both inhibits (cookies + remembered targets). */
+static void
+caffeine_inhibit_state_clear (CaffeinePlugin *caffeine)
+{
+    caffeine->ss_cookie = 0;
+    caffeine->pm_cookie = 0;
+
+    g_clear_pointer (&caffeine->ss_backend, g_free);
+    g_clear_pointer (&caffeine->ss_path, g_free);
+    g_clear_pointer (&caffeine->ss_iface, g_free);
+    g_clear_pointer (&caffeine->pm_backend, g_free);
+    g_clear_pointer (&caffeine->pm_path, g_free);
+    g_clear_pointer (&caffeine->pm_iface, g_free);
+}
+
+static void
+caffeine_dbus_uninhibit (CaffeinePlugin *caffeine)
+{
+    if (caffeine->ss_cookie != 0 || caffeine->pm_cookie != 0)
+    {
+        GDBusConnection *conn;
+        GError          *error = NULL;
+
+        conn = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
+        if (conn != NULL)
+        {
+            try_uninhibit (conn, caffeine->ss_cookie, caffeine->ss_backend,
+                           caffeine->ss_path, caffeine->ss_iface);
+            try_uninhibit (conn, caffeine->pm_cookie, caffeine->pm_backend,
+                           caffeine->pm_path, caffeine->pm_iface);
+            g_object_unref (conn);
+        }
+        else
+        {
+            g_warning ("Caffeine: could not connect to session bus: %s", error->message);
+            g_clear_error (&error);
+        }
+    }
+
+    /* Always forget the old state, even if the bus was unreachable: the
+     * inhibits die with our bus connection anyway, and keeping stale
+     * cookies around would only leak/confuse the next Inhibit. */
+    caffeine_inhibit_state_clear (caffeine);
 }
 
 /* Returns TRUE if at least one of screensaver/power-management inhibit
@@ -132,6 +214,9 @@ caffeine_dbus_inhibit (CaffeinePlugin *caffeine)
     GDBusConnection *conn;
     GError          *error = NULL;
     gboolean         ss_ok, pm_ok;
+
+    /* drop anything left over from an earlier attempt first */
+    caffeine_dbus_uninhibit (caffeine);
 
     conn = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
     if (conn == NULL)
@@ -154,39 +239,6 @@ caffeine_dbus_inhibit (CaffeinePlugin *caffeine)
         g_warning ("Caffeine: could not inhibit power management on any known bus name");
 
     return ss_ok || pm_ok;
-}
-
-static void
-caffeine_dbus_uninhibit (CaffeinePlugin *caffeine)
-{
-    GDBusConnection *conn;
-    GError          *error = NULL;
-
-    if (caffeine->ss_cookie == 0 && caffeine->pm_cookie == 0)
-        return;
-
-    conn = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
-    if (conn == NULL)
-    {
-        g_warning ("Caffeine: could not connect to session bus: %s", error->message);
-        g_clear_error (&error);
-        return;
-    }
-
-    try_uninhibit (conn, caffeine->ss_cookie, caffeine->ss_backend, caffeine->ss_path, caffeine->ss_iface);
-    try_uninhibit (conn, caffeine->pm_cookie, caffeine->pm_backend, caffeine->pm_path, caffeine->pm_iface);
-
-    g_object_unref (conn);
-
-    caffeine->ss_cookie = 0;
-    caffeine->pm_cookie = 0;
-
-    g_free (caffeine->ss_backend); caffeine->ss_backend = NULL;
-    g_free (caffeine->ss_path);    caffeine->ss_path = NULL;
-    g_free (caffeine->ss_iface);   caffeine->ss_iface = NULL;
-    g_free (caffeine->pm_backend); caffeine->pm_backend = NULL;
-    g_free (caffeine->pm_path);    caffeine->pm_path = NULL;
-    g_free (caffeine->pm_iface);   caffeine->pm_iface = NULL;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -295,12 +347,9 @@ static gboolean
 on_icon_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data)
 {
     CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
-    GtkAllocation alloc;
     GdkPixbuf *frame_to_draw = NULL;
-    gtk_widget_get_allocation (widget, &alloc);
-
-    gint w = alloc.width;
-    gint h = alloc.height;
+    gint w = gtk_widget_get_allocated_width (widget);
+    gint h = gtk_widget_get_allocated_height (widget);
 
     /* prefer custom icons; fall back to the Cairo-drawn cup if missing */
     if (caffeine->icons != NULL)
@@ -319,10 +368,8 @@ on_icon_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data)
         gint x = (w - gdk_pixbuf_get_width (frame_to_draw)) / 2;
         gint y = (h - gdk_pixbuf_get_height (frame_to_draw)) / 2;
 
-        cairo_save (cr);
         gdk_cairo_set_source_pixbuf (cr, frame_to_draw, x, y);
         cairo_paint (cr);
-        cairo_restore (cr);
         return FALSE;
     }
 
@@ -340,21 +387,65 @@ on_icon_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data)
     return FALSE;
 }
 
+/* ---------------------------------------------------------------------- */
+/* Animation                                                              */
+/* ---------------------------------------------------------------------- */
+
+/* The timer only exists while something is actually moving:
+ *  - Cairo fallback (no ON frames loaded): steam wobble;
+ *  - custom/system icons with 2+ ON frames: frame cycling.
+ * A single static ON frame (the system-theme case, or one PNG) needs no
+ * redraws at all, so no wake-ups every 60 ms for nothing. */
+static gboolean
+caffeine_needs_animation (CaffeinePlugin *caffeine)
+{
+    if (!caffeine->active)
+        return FALSE;
+
+    if (caffeine->icons == NULL || caffeine->icons->on_frame_count == 0)
+        return TRUE;
+
+    return caffeine->icons->on_frame_count > 1;
+}
+
 static gboolean
 on_animation_tick (gpointer user_data)
 {
     CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
 
-    caffeine->animation_phase += 0.03;
-    if (caffeine->animation_phase > 1.0)
-        caffeine->animation_phase -= 1.0;
-
-    if (caffeine->icons != NULL && caffeine->icons->on_frame_count > 0)
+    if (caffeine->icons != NULL && caffeine->icons->on_frame_count > 1)
+    {
         caffeine->icon_frame_index = (caffeine->icon_frame_index + 1) % caffeine->icons->on_frame_count;
+    }
+    else
+    {
+        caffeine->animation_phase += 0.03;
+        if (caffeine->animation_phase > 1.0)
+            caffeine->animation_phase -= 1.0;
+    }
 
     gtk_widget_queue_draw (caffeine->icon_area);
 
     return G_SOURCE_CONTINUE;
+}
+
+/* Starts/stops the animation timer to match the current state. Safe to
+ * call any time (state change, icon reload); does nothing if the timer
+ * already matches. */
+static void
+caffeine_update_animation (CaffeinePlugin *caffeine)
+{
+    gboolean needed = caffeine_needs_animation (caffeine);
+
+    if (needed && caffeine->animation_timer_id == 0)
+    {
+        caffeine->animation_timer_id =
+            g_timeout_add (ANIM_INTERVAL_MS, on_animation_tick, caffeine);
+    }
+    else if (!needed)
+    {
+        clear_source (&caffeine->animation_timer_id);
+    }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -369,15 +460,10 @@ static gboolean
 on_blank_after_lock (gpointer user_data)
 {
     CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
-    GError *error = NULL;
 
-    if (!g_spawn_command_line_async ("xset dpms force off", &error))
-    {
-        g_warning ("Caffeine: failed to blank monitor via xset: %s", error->message);
-        g_clear_error (&error);
-    }
+    caffeine->blank_timer_id = 0; /* this source is about to be removed */
+    run_command ("xset dpms force off", "blank the monitor");
 
-    (void) caffeine;
     return G_SOURCE_REMOVE;
 }
 
@@ -385,17 +471,23 @@ static gboolean
 on_lock_cycle_tick (gpointer user_data)
 {
     CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
-    GError *error = NULL;
 
-    if (!g_spawn_command_line_async ("xflock4", &error))
-    {
-        g_warning ("Caffeine: failed to lock screen via xflock4: %s", error->message);
-        g_clear_error (&error);
-    }
+    run_command ("xflock4", "lock the screen");
 
-    g_timeout_add_seconds (LOCK_TO_BLANK_DELAY_SEC, on_blank_after_lock, caffeine);
+    /* tracked (and replaced, never stacked) so switching caffeine off, or
+     * removing the plugin, within the delay cancels the pending blank */
+    clear_source (&caffeine->blank_timer_id);
+    caffeine->blank_timer_id =
+        g_timeout_add_seconds (LOCK_TO_BLANK_DELAY_SEC, on_blank_after_lock, caffeine);
 
     return G_SOURCE_CONTINUE;
+}
+
+static void
+caffeine_lock_cycle_stop (CaffeinePlugin *caffeine)
+{
+    clear_source (&caffeine->lock_cycle_timer_id);
+    clear_source (&caffeine->blank_timer_id);
 }
 
 /* (Re)starts the lock cycle timer from current settings. No-op if mode
@@ -405,11 +497,7 @@ caffeine_lock_cycle_restart (CaffeinePlugin *caffeine)
 {
     guint interval_min;
 
-    if (caffeine->lock_cycle_timer_id != 0)
-    {
-        g_source_remove (caffeine->lock_cycle_timer_id);
-        caffeine->lock_cycle_timer_id = 0;
-    }
+    caffeine_lock_cycle_stop (caffeine);
 
     if (!caffeine->active)
         return;
@@ -422,16 +510,6 @@ caffeine_lock_cycle_restart (CaffeinePlugin *caffeine)
         g_timeout_add_seconds (interval_min * 60, on_lock_cycle_tick, caffeine);
 }
 
-static void
-caffeine_lock_cycle_stop (CaffeinePlugin *caffeine)
-{
-    if (caffeine->lock_cycle_timer_id != 0)
-    {
-        g_source_remove (caffeine->lock_cycle_timer_id);
-        caffeine->lock_cycle_timer_id = 0;
-    }
-}
-
 /* ---------------------------------------------------------------------- */
 /* Self-triggered screen-off-only timer (independent of the lock cycle)   */
 /* ---------------------------------------------------------------------- */
@@ -442,18 +520,17 @@ caffeine_lock_cycle_stop (CaffeinePlugin *caffeine)
 static gboolean
 on_screen_off_tick (gpointer user_data)
 {
-    CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
-    GError *error = NULL;
+    (void) user_data;
 
-    if (!g_spawn_command_line_async ("xset dpms force off", &error))
-    {
-        g_warning ("Caffeine: failed to turn off screen via xset: %s", error->message);
-        g_clear_error (&error);
-    }
-
-    (void) caffeine;
+    run_command ("xset dpms force off", "turn off the screen");
 
     return G_SOURCE_CONTINUE;
+}
+
+static void
+caffeine_screen_off_stop (CaffeinePlugin *caffeine)
+{
+    clear_source (&caffeine->screen_off_timer_id);
 }
 
 /* (Re)starts the screen-off timer from current settings. No-op if
@@ -463,11 +540,7 @@ caffeine_screen_off_restart (CaffeinePlugin *caffeine)
 {
     guint interval_min;
 
-    if (caffeine->screen_off_timer_id != 0)
-    {
-        g_source_remove (caffeine->screen_off_timer_id);
-        caffeine->screen_off_timer_id = 0;
-    }
+    caffeine_screen_off_stop (caffeine);
 
     if (!caffeine->active)
         return;
@@ -478,16 +551,6 @@ caffeine_screen_off_restart (CaffeinePlugin *caffeine)
 
     caffeine->screen_off_timer_id =
         g_timeout_add_seconds (interval_min * 60, on_screen_off_tick, caffeine);
-}
-
-static void
-caffeine_screen_off_stop (CaffeinePlugin *caffeine)
-{
-    if (caffeine->screen_off_timer_id != 0)
-    {
-        g_source_remove (caffeine->screen_off_timer_id);
-        caffeine->screen_off_timer_id = 0;
-    }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -511,8 +574,8 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
 
         caffeine->active = TRUE;
         caffeine->animation_phase = 0.0;
-        caffeine->animation_timer_id =
-            g_timeout_add (ANIM_INTERVAL_MS, on_animation_tick, caffeine);
+        caffeine->icon_frame_index = 0;
+        caffeine_update_animation (caffeine);
 
         caffeine_lock_cycle_restart (caffeine);
         caffeine_screen_off_restart (caffeine);
@@ -524,12 +587,7 @@ caffeine_set_active (CaffeinePlugin *caffeine, gboolean active)
     {
         caffeine_dbus_uninhibit (caffeine);
         caffeine->active = FALSE;
-
-        if (caffeine->animation_timer_id != 0)
-        {
-            g_source_remove (caffeine->animation_timer_id);
-            caffeine->animation_timer_id = 0;
-        }
+        caffeine_update_animation (caffeine); /* needed == FALSE now: stops the timer */
 
         caffeine_lock_cycle_stop (caffeine);
         caffeine_screen_off_stop (caffeine);
@@ -545,50 +603,9 @@ static void
 on_button_clicked (GtkWidget *widget, gpointer user_data)
 {
     CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
+
+    (void) widget;
     caffeine_set_active (caffeine, !caffeine->active);
-}
-
-/* ---------------------------------------------------------------------- */
-/* Plugin lifecycle                                                       */
-/* ---------------------------------------------------------------------- */
-
-static void
-caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
-{
-    if (caffeine->animation_timer_id != 0)
-        g_source_remove (caffeine->animation_timer_id);
-
-    if (caffeine->theme_notify_handler_id != 0)
-    {
-        GtkSettings *gtk_settings = gtk_settings_get_default ();
-        if (gtk_settings != NULL)
-            g_signal_handler_disconnect (gtk_settings, caffeine->theme_notify_handler_id);
-        caffeine->theme_notify_handler_id = 0;
-    }
-
-    if (caffeine->icon_theme_changed_handler_id != 0)
-    {
-        GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
-        if (icon_theme != NULL)
-            g_signal_handler_disconnect (icon_theme, caffeine->icon_theme_changed_handler_id);
-        caffeine->icon_theme_changed_handler_id = 0;
-    }
-
-    caffeine_lock_cycle_stop (caffeine);
-    caffeine_screen_off_stop (caffeine);
-
-    if (caffeine->active)
-        caffeine_dbus_uninhibit (caffeine);
-
-    g_free (caffeine->ss_backend);
-    g_free (caffeine->ss_path);
-    g_free (caffeine->ss_iface);
-    g_free (caffeine->pm_backend);
-    g_free (caffeine->pm_path);
-    g_free (caffeine->pm_iface);
-    g_free (caffeine->xfconf_channel_name);
-    caffeine_icon_set_free (caffeine->icons);
-    g_free (caffeine);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -637,14 +654,43 @@ caffeine_init_translations (void)
     g_free (user_localedir); /* bindtextdomain() keeps its own copy */
 }
 
-/* Reloads the custom icon set at the icon area's current pixel size.
- * Used on live theme changes, preference changes, and panel resizes. */
+/* ---------------------------------------------------------------------- */
+/* Icons and sizing                                                       */
+/* ---------------------------------------------------------------------- */
+
+/* Reloads the icon set at the icon area's current pixel size.
+ *
+ * Unless `force` is set, this is skipped when the result would be the
+ * same as what's already loaded (same size, source, light/dark variant
+ * and - for system symbolic icons - same foreground colour). That makes
+ * it cheap to call from every place that *might* change the icons:
+ * startup, theme/style updates, panel resizes. `force` is for events
+ * where the files or the theme itself changed. */
 static void
-caffeine_reload_icons (CaffeinePlugin *caffeine)
+caffeine_reload_icons (CaffeinePlugin *caffeine, gboolean force)
 {
+    GtkStyleContext   *context;
+    CaffeineIconTheme  variant;
+    GdkRGBA            fg;
+
     /* uses the last size reported via size-changed, not
      * gtk_widget_get_allocation() which can still read 0 very early */
     if (caffeine->icon_pixel_size <= 0)
+        return;
+
+    context = gtk_widget_get_style_context (caffeine->button);
+    variant = caffeine_icons_resolve_theme (caffeine->settings.icon_theme);
+
+    /* NORMAL state on purpose: hover/pressed colours must not look like
+     * a theme change and trigger reloads while the pointer moves around */
+    gtk_style_context_get_color (context, GTK_STATE_FLAG_NORMAL, &fg);
+
+    if (!force && caffeine->icons != NULL &&
+        caffeine->icons_loaded_size == caffeine->icon_pixel_size &&
+        caffeine->icons_loaded_source == caffeine->settings.icon_source &&
+        caffeine->icons_loaded_variant == variant &&
+        (caffeine->settings.icon_source != CAFFEINE_ICON_SOURCE_SYSTEM ||
+         gdk_rgba_equal (&fg, &caffeine->icons_loaded_fg)))
         return;
 
     caffeine_icon_set_free (caffeine->icons);
@@ -654,14 +700,41 @@ caffeine_reload_icons (CaffeinePlugin *caffeine)
      * otherwise (or for the PLUGIN source) use Caffeine's own icons,
      * which themselves fall back to the Cairo cup */
     if (caffeine->settings.icon_source == CAFFEINE_ICON_SOURCE_SYSTEM)
-        caffeine->icons = caffeine_icons_load_from_system_theme (
-            caffeine->icon_pixel_size, gtk_widget_get_style_context (caffeine->button));
+        caffeine->icons = caffeine_icons_load_from_system_theme (caffeine->icon_pixel_size, context);
 
     if (caffeine->icons == NULL)
         caffeine->icons = caffeine_icons_load (caffeine->icon_pixel_size, caffeine->settings.icon_theme);
 
+    caffeine->icons_loaded_size = caffeine->icon_pixel_size;
+    caffeine->icons_loaded_source = caffeine->settings.icon_source;
+    caffeine->icons_loaded_variant = variant;
+    caffeine->icons_loaded_fg = fg;
+
     caffeine->icon_frame_index = 0;
+
+    /* the new set may or may not animate (1 frame vs many vs Cairo) */
+    caffeine_update_animation (caffeine);
     gtk_widget_queue_draw (caffeine->icon_area);
+}
+
+static gboolean
+on_icon_reload_timeout (gpointer user_data)
+{
+    CaffeinePlugin *caffeine = (CaffeinePlugin *) user_data;
+
+    caffeine->icon_reload_timer_id = 0;
+    caffeine_reload_icons (caffeine, TRUE);
+
+    return G_SOURCE_REMOVE;
+}
+
+/* Coalesces a burst of icon-theme "changed" signals into one reload. */
+static void
+caffeine_schedule_icon_reload (CaffeinePlugin *caffeine)
+{
+    if (caffeine->icon_reload_timer_id == 0)
+        caffeine->icon_reload_timer_id =
+            g_timeout_add (ICON_RELOAD_DEBOUNCE_MS, on_icon_reload_timeout, caffeine);
 }
 
 /* The icon has to fit INSIDE the button: panel size minus the theme's
@@ -672,13 +745,15 @@ static gint
 caffeine_get_icon_size (CaffeinePlugin *caffeine, gint panel_size)
 {
     GtkStyleContext *context = gtk_widget_get_style_context (caffeine->button);
-    GtkStateFlags    state = gtk_style_context_get_state (context);
     GtkBorder        padding;
     GtkBorder        border;
     gint             extra;
 
-    gtk_style_context_get_padding (context, state, &padding);
-    gtk_style_context_get_border (context, state, &border);
+    /* NORMAL state, not the live one: some themes change padding while
+     * the button is pressed/hovered, which would make the icon size (and
+     * with it a full icon reload) flip on every click */
+    gtk_style_context_get_padding (context, GTK_STATE_FLAG_NORMAL, &padding);
+    gtk_style_context_get_border (context, GTK_STATE_FLAG_NORMAL, &border);
 
     extra = MAX (padding.left + padding.right + border.left + border.right,
                  padding.top + padding.bottom + border.top + border.bottom);
@@ -702,7 +777,7 @@ caffeine_apply_panel_size (CaffeinePlugin *caffeine, gint panel_size)
 
     caffeine->icon_pixel_size = icon_size;
     gtk_widget_set_size_request (caffeine->icon_area, icon_size, icon_size);
-    caffeine_reload_icons (caffeine);
+    caffeine_reload_icons (caffeine, FALSE);
 }
 
 static gboolean
@@ -713,8 +788,9 @@ caffeine_size_changed (XfcePanelPlugin *plugin, gint size, CaffeinePlugin *caffe
     return TRUE;
 }
 
-/* The theme (and so the button's padding) can change at runtime, or only
- * settle after the button joins the panel - recompute the icon size. */
+/* The theme (and so the button's padding and colours) can change at
+ * runtime, or only settle after the button joins the panel - recompute
+ * the icon size, and reload if the symbolic icon colour went stale. */
 static void
 on_button_style_updated (GtkWidget *button, gpointer user_data)
 {
@@ -722,7 +798,10 @@ on_button_style_updated (GtkWidget *button, gpointer user_data)
 
     (void) button;
     if (caffeine->panel_size > 0)
+    {
         caffeine_apply_panel_size (caffeine, caffeine->panel_size);
+        caffeine_reload_icons (caffeine, FALSE);
+    }
 }
 
 /* Fires when GTK's "prefer dark theme" setting changes - covers both a
@@ -737,7 +816,7 @@ on_gtk_theme_notify (GObject *settings, GParamSpec *pspec, gpointer user_data)
     (void) pspec;
 
     if (caffeine->settings.icon_theme == CAFFEINE_ICON_THEME_AUTO)
-        caffeine_reload_icons (caffeine);
+        caffeine_reload_icons (caffeine, FALSE);
 }
 
 /* Fires when the GTK icon theme changes or is modified on disk. Only
@@ -750,7 +829,59 @@ on_icon_theme_changed (GtkIconTheme *icon_theme, gpointer user_data)
     (void) icon_theme;
 
     if (caffeine->settings.icon_source == CAFFEINE_ICON_SOURCE_SYSTEM)
-        caffeine_reload_icons (caffeine);
+        caffeine_schedule_icon_reload (caffeine);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Plugin lifecycle                                                       */
+/* ---------------------------------------------------------------------- */
+
+static void
+caffeine_free (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
+{
+    /* Stop everything that could call back into `caffeine` first... */
+    clear_source (&caffeine->animation_timer_id);
+    clear_source (&caffeine->icon_reload_timer_id);
+    caffeine_lock_cycle_stop (caffeine);   /* also cancels a pending blank */
+    caffeine_screen_off_stop (caffeine);
+
+    /* ...then make sure no signal can reach the memory freed below, even
+     * if a widget emits something while it is being torn down. */
+    g_signal_handlers_disconnect_by_data (plugin, caffeine);
+    g_signal_handlers_disconnect_by_data (caffeine->button, caffeine);
+    g_signal_handlers_disconnect_by_data (caffeine->icon_area, caffeine);
+
+    if (caffeine->theme_notify_handler_id != 0)
+    {
+        GtkSettings *gtk_settings = gtk_settings_get_default ();
+        if (gtk_settings != NULL)
+            g_signal_handler_disconnect (gtk_settings, caffeine->theme_notify_handler_id);
+        caffeine->theme_notify_handler_id = 0;
+    }
+
+    if (caffeine->icon_theme_changed_handler_id != 0)
+    {
+        GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
+        if (icon_theme != NULL)
+            g_signal_handler_disconnect (icon_theme, caffeine->icon_theme_changed_handler_id);
+        caffeine->icon_theme_changed_handler_id = 0;
+    }
+
+    /* no-op if nothing is inhibited; releases the inhibits otherwise */
+    caffeine_dbus_uninhibit (caffeine);
+
+    g_free (caffeine->xfconf_channel_name);
+    caffeine_icon_set_free (caffeine->icons);
+    g_free (caffeine);
+}
+
+/* The user removed this plugin instance from the panel for good (not
+ * just a panel restart): don't leave its xfconf channel behind. */
+static void
+caffeine_removed (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
+{
+    (void) plugin;
+    caffeine_settings_remove (caffeine->xfconf_channel_name);
 }
 
 static void
@@ -761,31 +892,19 @@ caffeine_configure_plugin (XfcePanelPlugin *plugin, CaffeinePlugin *caffeine)
         /* restart timers immediately so new intervals take effect */
         caffeine_lock_cycle_restart (caffeine);
         caffeine_screen_off_restart (caffeine);
-        caffeine_reload_icons (caffeine);
+        caffeine_reload_icons (caffeine, TRUE);
     }
 }
 
 void
 caffeine_construct (XfcePanelPlugin *plugin)
 {
-    CaffeinePlugin *caffeine = g_new0 (CaffeinePlugin, 1);
+    CaffeinePlugin *caffeine = g_new0 (CaffeinePlugin, 1); /* everything starts at 0/NULL/FALSE */
 
     /* must run before the first _() call below */
     caffeine_init_translations ();
 
     caffeine->plugin = plugin;
-    caffeine->active = FALSE;
-    caffeine->ss_cookie = 0;
-    caffeine->ss_backend = NULL;
-    caffeine->pm_cookie = 0;
-    caffeine->pm_backend = NULL;
-    caffeine->animation_timer_id = 0;
-    caffeine->animation_phase = 0.0;
-    caffeine->lock_cycle_timer_id = 0;
-    caffeine->screen_off_timer_id = 0;
-    caffeine->theme_notify_handler_id = 0;
-    caffeine->icon_theme_changed_handler_id = 0;
-    caffeine->icon_frame_index = 0;
 
     /* unique per instance so multiple panel copies don't clobber settings */
     caffeine->xfconf_channel_name =
@@ -799,8 +918,6 @@ caffeine_construct (XfcePanelPlugin *plugin)
     if (caffeine->panel_size <= 0)
         caffeine->panel_size = 24;
     caffeine->icon_pixel_size = 0; /* computed below, once the button exists */
-
-    caffeine->icons = NULL;
 
     caffeine->button = xfce_panel_create_button ();
     gtk_button_set_relief (GTK_BUTTON (caffeine->button), GTK_RELIEF_NONE);
@@ -832,6 +949,7 @@ caffeine_construct (XfcePanelPlugin *plugin)
     g_signal_connect (plugin, "configure-plugin", G_CALLBACK (caffeine_configure_plugin), caffeine);
 
     g_signal_connect (plugin, "free-data", G_CALLBACK (caffeine_free), caffeine);
+    g_signal_connect (plugin, "removed", G_CALLBACK (caffeine_removed), caffeine);
     g_signal_connect (plugin, "size-changed", G_CALLBACK (caffeine_size_changed), caffeine);
 
     /* keeps AUTO icon theme in sync with live system theme changes, and
@@ -853,7 +971,9 @@ caffeine_construct (XfcePanelPlugin *plugin)
                                    G_CALLBACK (on_icon_theme_changed), caffeine);
     }
 
-    caffeine_reload_icons (caffeine);
+    /* normally a no-op: apply_panel_size() above already loaded the icons
+     * for this exact size/theme (the signature check skips the duplicate) */
+    caffeine_reload_icons (caffeine, FALSE);
 }
 
 /* Register the plugin with the Xfce panel */

@@ -26,6 +26,11 @@ void caffeine_settings_load (CaffeineSettings *settings, const gchar *channel_na
 /* Persists settings to xfconf under channel_name. */
 void caffeine_settings_save (const CaffeineSettings *settings, const gchar *channel_name);
 
+/* Deletes everything stored under channel_name. Call when the plugin
+ * instance is permanently removed from the panel, so no stale channel
+ * file is left behind. */
+void caffeine_settings_remove (const gchar *channel_name);
+
 /* Shows the modal preferences dialog. Blocks until closed. On accept,
  * updates *settings, saves to xfconf, and returns TRUE. Returns FALSE
  * if cancelled. */
