@@ -3,11 +3,12 @@
 
 XFCE4 panel eklentisi. GNOME'un "hızlı ayarlar" menüsüne benzer, panelde
 tek bir düğmeyle açılan bir açılır pencere sunar: ses ve ekran parlaklığı
-kaydırıcıları, ayrıca Bluetooth / Wifi/ethernet / Aeroplane Mode gibi hızlı
-geçiş düğmeleri.
+kaydırıcıları, ayrıca Bluetooth / Wifi/ethernet / Airplane Mode / Night light/ Balanced vb. gibi hızlı geçiş düğmeleri. Hem XFCE4'ün sadeliğini korur hemde Gnome hızlı ayarlar menüsüne benzer yapı sunar.
 
-Şuan alpha aşamasındadır ayrıca çalışan tuşlar şunlar Wifi/ethernet, parlaklık kontrolü, ses kontrolü, yukarıdaki küçük düğmeler (güç tuşu, screenshot tuşu vb) **daha hala ekleniyor teker teker**
-
+## Kurulum (Önerilen)
+```bash
+bash install.sh
+```
 ## Görseller
 ![adwaita elementary-icons](./screenshots/screenshot0-adwaita-elementary-icon.png)
 ![big-sur-dark](./screenshots/screenshot1-bigsur-dark.png)
@@ -51,5 +52,4 @@ xfce4-panel -r
 Panelde sağ tık → Panel → Öğe Ekle... üzerinden "Extras Menu" olarak eklenebilir.
 
 ## Notlar
-1. gelecekte install.sh yapacağım ama şuan kod mantığındayım ve geliştirmeye devam ediyorum. (yakın zamanda yapacağım.)
-2. bazı şeyleri örneğin dark mode veya balanced rasgele ekledim gelecekte daha geliştiğinde varsayılan gelen düzeni daha kullanışlı yapmayı planlıyorum.
+Şuan her hangi bir not yok...

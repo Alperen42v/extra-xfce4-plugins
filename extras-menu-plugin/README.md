@@ -1,13 +1,12 @@
 [Türkçe](turkish-README.md)
 # Extras Menu
 
-XFCE4 panel plugin. It provides a pop-up window opened with a single button
-on the panel, similar to GNOME's "Quick Settings" menu: volume and screen
-brightness sliders, as well as quick toggle buttons such as Bluetooth /
-Wifi/ethernet / Aeroplane Mode.
+XFCE4 panel plugin. Similar to GNOME's "quick settings" menu, the panel has It offers a pop-up window that opens with a single button: volume and screen brightness sliders, as well as quick switch buttons such as Bluetooth / Wifi/ethernet / Airplane Mode / Night light / Balanced, etc. It maintains the simplicity of XFCE4 and offers a similar structure to the Gnome quick settings menu.
 
-It is currently in the alpha phase, and the working buttons are Wifi/ethernet, brightness control, volume control, small buttons above (power button, screenshot button, etc.) **still being added one by one**
-
+## Installation (Recommended)
+```bash
+bash install.sh
+```
 ## Pictures
 ![adwaita elementary-icons](./screenshots/screenshot0-adwaita-elementary-icon.png)
 ![big-sur-dark](./screenshots/screenshot1-bigsur-dark.png)
@@ -53,5 +52,4 @@ It can be added to the panel by right-clicking → Panel → Add New Items...
 and selecting "Extras Menu".
 
 ### Notes
-1. I will do install.sh in the future, but I am currently in code logic and I continue to develop. (I will do it soon.) 
-2. I added some things for example, Dark Mode or Balanced random, I plan to make the default layout more useful when it develops more in the future.
+There is no note at the moment...
