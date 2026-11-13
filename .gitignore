@@ -17,3 +17,6 @@ build/
 dist/
 target/
 out/
+
+# Ai / LLM
+*.patch
