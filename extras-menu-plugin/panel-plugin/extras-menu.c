@@ -137,6 +137,15 @@ on_dark_mode_message(const gchar *primary, const gchar *secondary, gpointer user
                                        primary, secondary);
 }
 
+/* Caffeine couldn't be turned on (no service accepted the request): tell
+ * the user, in a dialog that belongs to the dropdown. */
+static void
+on_caffeine_message(const gchar *primary, const gchar *secondary, gpointer user_data)
+{
+    extras_menu_dropdown_show_message(EXTRAS_MENU_PLUGIN(user_data), GTK_MESSAGE_WARNING,
+                                       primary, secondary);
+}
+
 static void
 on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 {
@@ -159,6 +168,10 @@ on_plugin_free_data(XfcePanelPlugin *panel_plugin, ExtrasMenuPlugin *plugin)
 
     extras_menu_dark_mode_free(plugin->dark_mode);
     plugin->dark_mode = NULL;
+
+    /* Lets the screensaver and power manager go if Caffeine is on. */
+    extras_menu_caffeine_free(plugin->caffeine);
+    plugin->caffeine = NULL;
 
     /* Puts the screen's colors back if Night Light is on. */
     extras_menu_night_light_free(plugin->night_light);
@@ -345,6 +358,14 @@ extras_menu_plugin_construct(XfcePanelPlugin *panel_plugin)
     GtkWidget *night_light_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_NIGHT_LIGHT);
     if (night_light_pill != NULL)
         plugin->night_light = extras_menu_night_light_new(night_light_pill);
+
+    /* --- Caffeine pill: keeps the screen on and the computer awake. It
+     * talks to the session's screensaver and power manager on its own and
+     * reads how long to stay on from the saved settings, so it needs
+     * nothing from the backends above. --- */
+    GtkWidget *caffeine_pill = extras_menu_popover_get_pill(content, EXTRAS_MENU_PILL_CAFFEINE);
+    if (caffeine_pill != NULL)
+        plugin->caffeine = extras_menu_caffeine_new(caffeine_pill, on_caffeine_message, plugin);
 
     g_signal_connect(panel_plugin, "free-data",
                       G_CALLBACK(on_plugin_free_data), plugin);

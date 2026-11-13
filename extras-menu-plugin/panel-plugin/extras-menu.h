@@ -11,6 +11,7 @@
 #include "microphone.h"
 #include "network/network.h"
 #include "pills/airplane-mode.h"
+#include "pills/caffeine.h"
 #include "pills/dark-mode.h"
 #include "pills/night-light.h"
 #include "pills/power-profile.h"
@@ -295,6 +296,14 @@ struct _ExtrasMenuPlugin
      * pointer is all that is needed here. NULL if the pill widget
      * wasn't found. Appended last, like the fields above. */
     ExtrasMenuNightLight *night_light;
+
+    /* The Caffeine pill's logic (pills/caffeine.c): keeps the screen on
+     * and the computer from sleeping while it is switched on, for as long
+     * as the user's setting says. Owns its own state and holds on to the
+     * pill itself, so this one pointer is all that is needed here. NULL if
+     * the pill widget wasn't found. Appended last, like the fields
+     * above. */
+    ExtrasMenuCaffeine *caffeine;
 };
 
 struct _ExtrasMenuPluginClass

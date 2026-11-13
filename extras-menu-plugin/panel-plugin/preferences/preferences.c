@@ -4,6 +4,7 @@
 #include "pill-layout-page.h"
 #include "slider-layout-page.h"
 #include "night-light-page.h"
+#include "caffeine-page.h"
 
 /*
  * The dialog is a sidebar of sections on the left and the selected
@@ -27,6 +28,7 @@ static const PreferencesSection sections[] = {
     { "pill-layout",   "Pill buttons",         extras_menu_pill_layout_page_new },
     { "slider-layout", "Sliders",              extras_menu_slider_layout_page_new },
     { "night-light",   "Night light",          extras_menu_night_light_page_new },
+    { "caffeine",      "Caffeine",             extras_menu_caffeine_page_new },
 };
 
 /* The one open preferences dialog, or NULL. Cleared automatically when

@@ -1,4 +1,5 @@
 #include "popover.h"
+#include "pills/caffeine.h"
 #include "preferences/pill-layout-config.h"
 #include "preferences/slider-layout-config.h"
 #include "microphone.h"
@@ -964,6 +965,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
 
     GtkWidget *dark_mode = extras_menu_make_pill_toggle("weather-clear-night-symbolic", "Dark Mode", FALSE, FALSE);
     GtkWidget *airplane = extras_menu_make_pill_toggle("airplane-mode-symbolic", "Airplane Mode", FALSE, FALSE);
+    GtkWidget *caffeine = extras_menu_make_pill_toggle(extras_menu_caffeine_icon_name(FALSE), "Caffeine", FALSE, FALSE);
 
     /* Which pills the menu shows, and in which cell each sits, is a
      * user setting. Here they are only tagged with their ids and
@@ -980,6 +982,7 @@ extras_menu_popover_content_new(GtkWidget **battery_label, GtkWidget **battery_i
         { balanced,  EXTRAS_MENU_PILL_BALANCED  },
         { dark_mode, EXTRAS_MENU_PILL_DARK_MODE },
         { airplane,  EXTRAS_MENU_PILL_AIRPLANE  },
+        { caffeine,  EXTRAS_MENU_PILL_CAFFEINE  },
     };
 
     for (guint i = 0; i < G_N_ELEMENTS(pill_widgets); i++)

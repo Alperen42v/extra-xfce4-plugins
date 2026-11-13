@@ -1,4 +1,5 @@
 #include "pill-layout-config.h"
+#include "pills/caffeine.h"
 
 #include <glib/gstdio.h>
 
@@ -9,7 +10,7 @@
 /* The catalog of every pill, in default order. Adding a pill = one line
  * here (plus its id in the header, EXTRAS_MENU_PILL_COUNT, and building
  * the widget in popover.c). */
-static const ExtrasMenuPillInfo pills[] = {
+static ExtrasMenuPillInfo pills[] = {
     { EXTRAS_MENU_PILL_NETWORK,     "Wi-Fi / Ethernet", "network-wireless-symbolic",
 "Turns Wi-Fi on or off; the arrow lists nearby networks." },
     { EXTRAS_MENU_PILL_NIGHT_LIGHT, "Night Light",      "night-light-symbolic",
@@ -22,9 +23,26 @@ static const ExtrasMenuPillInfo pills[] = {
 "Lit while a dark theme is used; click to switch to the theme's dark or light version." },
     { EXTRAS_MENU_PILL_AIRPLANE,    "Airplane Mode",    "airplane-mode-symbolic",
 "Turns Wi-Fi and Bluetooth off together, and back on again." },
+    { EXTRAS_MENU_PILL_CAFFEINE,    "Caffeine",         "preferences-desktop-screensaver-symbolic",
+"Keeps the screen on and stops the computer from sleeping; how long it stays on is set in the Caffeine section." },
 };
 
 G_STATIC_ASSERT(G_N_ELEMENTS(pills) == EXTRAS_MENU_PILL_COUNT);
+
+/* The table is not const for one reason: the Caffeine pill's icon depends
+ * on which icons the theme has (see extras_menu_caffeine_icon_name()), so
+ * it is filled in here, every time the table is handed out, with the same
+ * icon the dropdown's pill shows. The strings it is set to are constants;
+ * nothing is allocated. */
+static void
+update_dynamic_icons(void)
+{
+    for (guint i = 0; i < G_N_ELEMENTS(pills); i++)
+    {
+        if (g_strcmp0(pills[i].id, EXTRAS_MENU_PILL_CAFFEINE) == 0)
+            pills[i].icon = extras_menu_caffeine_icon_name(TRUE);
+    }
+}
 
 /* Index of the pill with this id in the table, or -1. */
 static gint
@@ -43,6 +61,7 @@ const ExtrasMenuPillInfo *
 extras_menu_pill_catalog_get(guint index)
 {
     g_return_val_if_fail(index < G_N_ELEMENTS(pills), NULL);
+    update_dynamic_icons();
     return &pills[index];
 }
 
@@ -65,6 +84,8 @@ extras_menu_pill_layout_contains(const GPtrArray *layout, const gchar *id)
 GPtrArray *
 extras_menu_pill_layout_defaults(void)
 {
+    update_dynamic_icons();
+
     GPtrArray *layout = g_ptr_array_new();
 
     for (guint i = 0; i < G_N_ELEMENTS(pills); i++)
@@ -83,6 +104,8 @@ config_file_path(void)
 GPtrArray *
 extras_menu_pill_layout_load(void)
 {
+    update_dynamic_icons();
+
     GPtrArray *layout = g_ptr_array_new();
     gboolean seen[EXTRAS_MENU_PILL_COUNT] = { FALSE };
     gboolean configured = FALSE; /* the file has a pill list (possibly empty) */

@@ -13,7 +13,7 @@ G_BEGIN_DECLS
  * The menu shows any subset of them, so a layout is never longer than
  * this. Must match the table in pill-layout-config.c (checked at
  * compile time). */
-#define EXTRAS_MENU_PILL_COUNT 6
+#define EXTRAS_MENU_PILL_COUNT 7
 
 /* The stable ids of the pills. These are what is written to the config
  * file, so never rename one -- a user's saved layout would stop
@@ -24,6 +24,7 @@ G_BEGIN_DECLS
 #define EXTRAS_MENU_PILL_BALANCED  "balanced"
 #define EXTRAS_MENU_PILL_DARK_MODE "dark-mode"
 #define EXTRAS_MENU_PILL_AIRPLANE  "airplane"
+#define EXTRAS_MENU_PILL_CAFFEINE  "caffeine"
 
 /* The id the Night Light pill's cell had while it was still the empty
  * "quality" placeholder. A layout saved back then holds this id, so
@@ -81,7 +82,7 @@ ExtrasMenuPillShape extras_menu_pill_layout_get_shape(void);
 gboolean extras_menu_pill_layout_set_shape(ExtrasMenuPillShape shape, GError **error);
 
 /* Every pill, in the order the plugin shipped with (Wi-Fi, night light,
- * Bluetooth, balanced, dark mode, aeroplane mode). */
+ * Bluetooth, balanced, dark mode, aeroplane mode, caffeine). */
 GPtrArray *extras_menu_pill_layout_defaults(void);
 
 /* Whether the layout shows the pill with this id. */

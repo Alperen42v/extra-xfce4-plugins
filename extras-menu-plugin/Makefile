@@ -59,7 +59,9 @@ SOURCES = $(SRC_DIR)/extras-menu.c $(SRC_DIR)/popover.c $(SRC_DIR)/audio.c $(SRC
           $(SRC_DIR)/preferences/slider-layout-config.c \
           $(SRC_DIR)/preferences/slider-layout-page.c \
           $(SRC_DIR)/preferences/night-light-config.c \
-          $(SRC_DIR)/preferences/night-light-page.c
+          $(SRC_DIR)/preferences/night-light-page.c \
+          $(SRC_DIR)/preferences/caffeine-config.c \
+          $(SRC_DIR)/preferences/caffeine-page.c
 
 # Every pill module lives in pills/; new ones are picked up automatically.
 SOURCES += $(wildcard $(SRC_DIR)/pills/*.c)
