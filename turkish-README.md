@@ -1,56 +1,82 @@
-[English README](./README.md)
+<div align="center">
 
-# Ek XFCE4 Eklentileri
+# 🧩 Ek XFCE4 Eklentileri
 
-XFCE4 için kullanışlı özellikler sunan ve masaüstü ortamını daha işlevsel, esnek ve özelleştirilebilir hâle getirmeye yardımcı olan ek eklentiler oluşturmayı amaçlayan bir proje.
+**XFCE4'ü daha işlevsel, esnek ve özelleştirilebilir hâle getiren, topluluk odaklı eklentiler.**
 
-Bu depo, farklı ihtiyaçlara yönelik çeşitli eklentileri bir araya getirirken kullanıcıların ve geliştiricilerin bunları keşfetmesini, kullanmasını ve geliştirmesini kolaylaştırmayı hedefliyor.
+![Lisans](https://img.shields.io/badge/lisans-GPL--3.0-blue.svg)
+![Masaüstü](https://img.shields.io/badge/masaüstü-XFCE4-2284F2.svg)
+![PR'lar Açık](https://img.shields.io/badge/PR'lar-memnuniyetle-brightgreen.svg)
+![Katkılar](https://img.shields.io/badge/katkılar-açık-orange.svg)
 
-## 🚀 Amaç
+[🇬🇧 English](./README.md) · 🇹🇷 Türkçe
 
-`extra-xfce4-plugins`, XFCE4 kullanıcılarına günlük masaüstü deneyimlerini geliştirebilecek ek araçlar ve eklentiler sunmayı amaçlıyor.
+</div>
 
-Amaç yalnızca birkaç eklenti oluşturmak değil; topluluktan gelen fikirler ve katkılarla büyüyen bir proje ortaya çıkarmak.
+---
 
-## 🤝 Birlikte Geliştirelim
+## 📖 Hakkında
 
-Bu proje topluluk katkılarına açıktır.
+`extra-xfce4-plugins`, XFCE4 masaüstü ortamı için geliştirilen ek eklentilerden oluşan bir koleksiyondur. Her eklenti, günlük kullanımda karşılaşılan belirli bir ihtiyacı çözmek üzere tasarlanır ve XFCE'nin hafif ve sade felsefesine uygun kalır.
 
-Yeni bir eklenti önermek, bir hatayı düzeltmek, mevcut bir özelliği geliştirmek veya tamamen yeni bir şey oluşturmak istiyorsanız katkınız memnuniyetle karşılanır.
-
-Bir fikriniz mi var? Paylaşmaktan çekinmeyin. Küçük bir öneri bile kullanışlı ve yeni bir eklentinin başlangıç noktası olabilir.
+Amaç yalnızca birkaç eklenti sunmak değil; topluluktan gelen fikirler ve katkılarla büyüyen bir proje ortaya çıkarmaktır.
 
 ## 🧩 Eklentiler
 
-Her eklentinin kendi dizini ve daha ayrıntılı bilgilerin yer aldığı bir README dosyası vardır.
+Her eklentinin kendi dizini ve ayrıntılı bilgi, kurulum ve kullanım içeren kendi README dosyası vardır.
 
-- [Caffeine](./caffeine-plugin/turkish-README.md)
-- [Nightlight](./caffeine-plugin/turkish-README.md)
-- [Extras-menu](./extras-menu-plugin/turkish-README.md)
+| Eklenti | Açıklama | Dokümantasyon |
+| ------- | -------- | ------------- |
+| ☕ **Caffeine** | Ekranın uykuya geçmesini veya kilitlenmesini gerektiğinde engeller. | [README](./caffeine-plugin/turkish-README.md) |
+| 🌙 **Nightlight** | Ekran renk sıcaklığını ayarlayarak göz yorgunluğunu azaltır. | [README](./nightlight-plugin/turkish-README.md) |
+| 📂 **Extras-menu** | Ek araçlara hızlı erişim için pratik bir menü sunar. | [README](./extras-menu-plugin/turkish-README.md) |
 
-## 🛠️ Geliştirme
+## 🚀 Başlarken
 
-Katkıda bulunmak için depoyu klonlayın ve geliştirmek istediğiniz eklenti veya özellik üzerinde çalışmaya başlayın.
+Depoyu klonlayın:
 
 ```bash
 git clone https://github.com/Alperen42v/extra-xfce4-plugins.git
 cd extra-xfce4-plugins
 ```
 
-Değişikliklerinizi yaptıktan sonra çalışmanızı projeyle paylaşmak için bir pull request açabilirsiniz.
+Ardından ilgilendiğiniz eklentinin dizinine girin ve o eklentinin README dosyasındaki yönergeleri izleyin.
 
-## 💡 Fikirler ve Katkılar
+## 🤝 Katkıda Bulunma
 
-Hataları bildirmek, yeni özellikler önermek veya fikirlerinizi paylaşmak için **Issues** bölümünü kullanabilirsiniz.
+Her ölçekte katkı memnuniyetle karşılanır: hata düzeltmesi, yeni özellik, dokümantasyon iyileştirmesi ya da tamamen yeni bir eklenti.
 
-Pull request'ler de memnuniyetle karşılanır. Küçük bir geliştirme veya tamamen yeni bir eklenti olması fark etmez; yapılan her katkı projenin daha iyi hâle gelmesine yardımcı olabilir.
+1. Depoyu **fork** edin.
+2. Değişiklikleriniz için bir **branch** oluşturun:
+   ```bash
+   git checkout -b feature/harika-bir-degisiklik
+   ```
+3. Değişikliklerinizi anlaşılır bir mesajla **commit** edin:
+   ```bash
+   git commit -m "Add: değişikliğin kısa açıklaması"
+   ```
+4. Branch'inizi **push** edin ve bir **Pull Request** açın.
 
-Daha iyi bir XFCE4 deneyimi oluşturmak için birlikte çalışalım. ❤️
+## 💡 Sorunlar ve Fikirler
+
+Bir hata mı buldunuz ya da yeni bir eklenti fikriniz mi var? Bir [Issue](https://github.com/Alperen42v/extra-xfce4-plugins/issues) açabilirsiniz.
+
+Hata bildirirken lütfen şunları ekleyin:
+
+- Kullandığınız dağıtım ve XFCE sürümü
+- Sorunu yeniden oluşturma adımları
+- Beklenen ve gerçekleşen davranış
+
+Küçük bir öneri bile kullanışlı yeni bir eklentinin başlangıç noktası olabilir.
 
 ## 📜 Lisans
 
-GPL-v3.0
+Bu proje **GNU Genel Kamu Lisansı v3.0** (GPL-3.0) ile lisanslanmıştır. Ayrıntılar için [LICENSE](./LICENSE) dosyasına bakın.
 
 ---
 
-**extra-xfce4-plugins** — Toplulukla birlikte geliştirilen ek XFCE4 eklentileri.
+<div align="center">
+
+**extra-xfce4-plugins** — Toplulukla birlikte geliştirilen ek XFCE4 eklentileri. ❤️
+
+</div>

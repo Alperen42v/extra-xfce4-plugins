@@ -1,55 +1,82 @@
-[Türkçe README](./turkish-README.md)
-# Extra XFCE4 Plugins
+<div align="center">
 
-A project focused on creating extra plugins for XFCE4 that provide useful features and help make the desktop environment more functional, flexible, and customizable.
+# 🧩 Extra XFCE4 Plugins
 
-This repository aims to bring together different plugins for various needs while making it easy for users and developers to discover, use, and improve them.
+**Community-driven plugins that make XFCE4 more functional, flexible, and customizable.**
 
-## 🚀 Goal
+![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)
+![Desktop](https://img.shields.io/badge/desktop-XFCE4-2284F2.svg)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
+![Contributions](https://img.shields.io/badge/contributions-open-orange.svg)
 
-`extra-xfce4-plugins` aims to provide XFCE4 users with additional tools and plugins that can improve their everyday desktop experience.
+🇬🇧 English · [🇹🇷 Türkçe](./turkish-README.md)
 
-The goal is not only to create a few plugins, but to build a growing project shaped by ideas and contributions from the community.
+</div>
 
-## 🤝 Let's Build It Together
+---
 
-This project is open to community contributions.
+## 📖 About
 
-Whether you want to suggest a new plugin, fix a bug, improve an existing feature, or create something completely new, your contribution is welcome.
+`extra-xfce4-plugins` is a collection of additional plugins for the XFCE4 desktop environment. Each plugin is designed to solve a specific everyday need, while staying lightweight and consistent with the XFCE philosophy.
 
-Have an idea? Don't hesitate to share it. Even a small suggestion can become the starting point for a useful new plugin.
+The goal is not just to ship a few plugins, but to grow a project shaped by ideas and contributions from the community.
 
 ## 🧩 Plugins
 
-Each plugin has its own directory and README with more detailed information.
+Each plugin lives in its own directory with a dedicated README covering details, installation, and usage.
 
-- [Caffeine](./caffeine-plugin/README.md)
-- [Nightlight](./nightlight-plugin/README.md)
-- [Extras-menu](./extras-menu-plugin/README.md)
+| Plugin | Description | Documentation |
+| ------ | ----------- | ------------- |
+| ☕ **Caffeine** | Prevents the screen from sleeping or locking when you need it to stay awake. | [README](./caffeine-plugin/README.md) |
+| 🌙 **Nightlight** | Reduces eye strain by adjusting screen color temperature. | [README](./nightlight-plugin/README.md) |
+| 📂 **Extras-menu** | Provides a convenient menu for quick access to extra tools. | [README](./extras-menu-plugin/README.md) |
 
-## 🛠️ Development
+## 🚀 Getting Started
 
-To contribute, clone the repository and start working on the plugin or feature you want to improve.
+Clone the repository:
 
 ```bash
 git clone https://github.com/Alperen42v/extra-xfce4-plugins.git
 cd extra-xfce4-plugins
 ```
 
-After making your changes, you can open a pull request to share your work with the project.
+Then open the directory of the plugin you are interested in and follow the instructions in its README.
 
-## 💡 Ideas & Contributions
+## 🤝 Contributing
 
-You can use **Issues** to report bugs, suggest new features, or share ideas.
+Contributions of every size are welcome — a bug fix, a new feature, a documentation improvement, or an entirely new plugin.
 
-Pull requests are also welcome. Whether it is a small improvement or a completely new plugin, every contribution can help make the project better.
+1. **Fork** the repository.
+2. **Create a branch** for your change:
+   ```bash
+   git checkout -b feature/my-awesome-change
+   ```
+3. **Commit** your changes with a clear message:
+   ```bash
+   git commit -m "Add: short description of the change"
+   ```
+4. **Push** your branch and open a **Pull Request**.
 
-Let's work together to create a better XFCE4 experience. ❤️
+## 💡 Issues & Ideas
+
+Found a bug or have an idea for a new plugin? Open an [Issue](https://github.com/Alperen42v/extra-xfce4-plugins/issues).
+
+When reporting a bug, please include:
+
+- Your distribution and XFCE version
+- Steps to reproduce the problem
+- Expected vs. actual behavior
+
+Even a small suggestion can become the starting point of a useful new plugin.
 
 ## 📜 License
 
-GPL-v3.0
+This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](./LICENSE) file for details.
 
 ---
 
-**extra-xfce4-plugins** — Extra XFCE4 plugins built together with the community.
+<div align="center">
+
+**extra-xfce4-plugins** — Extra XFCE4 plugins built together with the community. ❤️
+
+</div>
