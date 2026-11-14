@@ -8,9 +8,7 @@ XFCE4 panel plugin. Similar to GNOME's "quick settings" menu, the panel has It o
 bash install.sh
 ```
 ## Pictures
-![adwaita elementary-icons](./screenshots/screenshot0-adwaita-elementary-icon.png)
-![big-sur-dark](./screenshots/screenshot1-bigsur-dark.png)
-![arc-dark_kora-icons](./screenshots/screenshot2-arc-dark_kora-icons.png)
+![demo](./screenshots/demo.gif)
 ## Dependencies
 
 ### Arch Linux

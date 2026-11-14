@@ -10,9 +10,7 @@ kaydırıcıları, ayrıca Bluetooth / Wifi/ethernet / Airplane Mode / Night lig
 bash install.sh
 ```
 ## Görseller
-![adwaita elementary-icons](./screenshots/screenshot0-adwaita-elementary-icon.png)
-![big-sur-dark](./screenshots/screenshot1-bigsur-dark.png)
-![arc-dark_kora-icons](./screenshots/screenshot2-arc-dark_kora-icons.png)
+![demo](./screenshots/demo.gif)
 ## Bağımlılıklar
 
 ### Arch Linux
