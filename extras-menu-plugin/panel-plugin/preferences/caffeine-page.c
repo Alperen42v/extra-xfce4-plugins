@@ -26,6 +26,9 @@ typedef struct
 {
     GtkWidget *custom_radio;
     GtkWidget *custom_spin;
+
+    GtkWidget *screen_off_check;
+    GtkWidget *screen_off_spin;
 } PageState;
 
 static void
@@ -73,6 +76,38 @@ on_custom_value_changed(GtkSpinButton *spin, gpointer user_data)
 
     if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->custom_radio)))
         save_duration((guint) gtk_spin_button_get_value_as_int(spin));
+}
+
+/* Saves the screen-off section as it is shown right now. */
+static void
+save_screen_off(PageState *st)
+{
+    GError *error = NULL;
+    gboolean enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->screen_off_check));
+    guint minutes = (guint) gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->screen_off_spin));
+
+    if (!extras_menu_caffeine_config_set_screen_off(enabled, minutes, &error))
+    {
+        g_warning("extras-menu: couldn't save the Caffeine screen-off setting: %s",
+                  error != NULL ? error->message : "unknown error");
+        g_clear_error(&error);
+    }
+}
+
+static void
+on_screen_off_toggled(GtkToggleButton *button, gpointer user_data)
+{
+    PageState *st = user_data;
+
+    gtk_widget_set_sensitive(st->screen_off_spin, gtk_toggle_button_get_active(button));
+    save_screen_off(st);
+}
+
+static void
+on_screen_off_value_changed(GtkSpinButton *spin, gpointer user_data)
+{
+    (void) spin;
+    save_screen_off(user_data);
 }
 
 GtkWidget *
@@ -137,6 +172,46 @@ extras_menu_caffeine_page_new(void)
     gtk_box_pack_start(GTK_BOX(custom_row), gtk_label_new("minutes"), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(page), custom_row, FALSE, FALSE, 0);
 
+    /* --- Screen off ----------------------------------------------------- */
+
+    gtk_box_pack_start(GTK_BOX(page), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL),
+                       FALSE, FALSE, 8);
+
+    GtkWidget *screen_off_heading = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(screen_off_heading), "<b>Screen off</b>");
+    gtk_label_set_xalign(GTK_LABEL(screen_off_heading), 0.0);
+    gtk_box_pack_start(GTK_BOX(page), screen_off_heading, FALSE, FALSE, 0);
+
+    GtkWidget *screen_off_description = gtk_label_new(
+        "While Caffeine is on, turn the screen off when the keyboard and mouse "
+        "haven't been touched for this long. Only the display is switched off: "
+        "the screen isn't locked and the computer doesn't go to sleep. Moving "
+        "the mouse or pressing a key turns it back on. Handy for OLED screens. "
+        "Note that a video playing without any input counts as no activity.");
+    gtk_label_set_line_wrap(GTK_LABEL(screen_off_description), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(screen_off_description), 0.0);
+    gtk_label_set_max_width_chars(GTK_LABEL(screen_off_description), 60);
+    gtk_style_context_add_class(gtk_widget_get_style_context(screen_off_description), "dim-label");
+    gtk_box_pack_start(GTK_BOX(page), screen_off_description, FALSE, FALSE, 0);
+
+    GtkWidget *screen_off_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+
+    st->screen_off_check = gtk_check_button_new_with_label("Turn the screen off after");
+    st->screen_off_spin = gtk_spin_button_new_with_range(
+        1, EXTRAS_MENU_CAFFEINE_SCREEN_OFF_MAX_MINUTES, 1);
+
+    gboolean screen_off_enabled = extras_menu_caffeine_config_get_screen_off_enabled();
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->screen_off_check), screen_off_enabled);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(st->screen_off_spin),
+                              extras_menu_caffeine_config_get_screen_off_minutes());
+    gtk_widget_set_sensitive(st->screen_off_spin, screen_off_enabled);
+
+    gtk_box_pack_start(GTK_BOX(screen_off_row), st->screen_off_check, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(screen_off_row), st->screen_off_spin, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(screen_off_row), gtk_label_new("minutes without activity"),
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(page), screen_off_row, FALSE, FALSE, 0);
+
     /* Show the saved choice before any handler is connected, so that
      * building the page doesn't write anything back. */
     if (saved_is_preset)
@@ -158,6 +233,10 @@ extras_menu_caffeine_page_new(void)
 
     g_signal_connect(st->custom_radio, "toggled", G_CALLBACK(on_custom_toggled), st);
     g_signal_connect(st->custom_spin, "value-changed", G_CALLBACK(on_custom_value_changed), st);
+
+    g_signal_connect(st->screen_off_check, "toggled", G_CALLBACK(on_screen_off_toggled), st);
+    g_signal_connect(st->screen_off_spin, "value-changed",
+                     G_CALLBACK(on_screen_off_value_changed), st);
 
     return page;
 }

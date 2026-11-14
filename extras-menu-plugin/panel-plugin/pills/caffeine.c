@@ -6,7 +6,9 @@
 #include "pills/caffeine.h"
 #include "preferences/caffeine-config.h"
 
+#include <gdk/gdkx.h>
 #include <gio/gio.h>
+#include <X11/extensions/sync.h>
 
 /* The D-Bus calls are made synchronously from the click handler. A
  * service that isn't running fails at once (we never ask the bus to
@@ -21,6 +23,12 @@
  * doesn't tick while the computer is suspended, which would stretch
  * the countdown by however long it slept. */
 #define EXPIRY_CHECK_SECONDS 15
+
+/* How often the idle time is looked at while the screen-off feature is
+ * waiting (the screen goes off at most this much after the time is up). */
+#define BLANK_CHECK_SECONDS 5
+
+#define BLANK_COMMAND "xset dpms force off"
 
 typedef struct
 {
@@ -72,6 +80,16 @@ struct _ExtrasMenuCaffeine
 
     guint expiry_id;  /* the countdown's clock check; 0 when there is none */
     gint64 deadline;  /* g_get_real_time() when it runs out; 0 = never */
+
+    /* The screen-off feature. blank_after_ms is the saved setting (0 =
+     * switched off), kept here so the check doesn't read the file every
+     * few seconds. blank_id is the periodic idle check (0 = not
+     * running). screen_is_off is TRUE from the moment the screen was
+     * turned off until the user has been active again, so it is turned
+     * off once per absence and not every few seconds. */
+    gint64 blank_after_ms;
+    guint blank_id;
+    gboolean screen_is_off;
 
     guint config_listener;
 
@@ -306,6 +324,157 @@ arm_expiry(ExtrasMenuCaffeine *self)
     self->expiry_id = g_timeout_add_seconds(EXPIRY_CHECK_SECONDS, on_expiry_check, self);
 }
 
+/* --- idle time ---------------------------------------------------------------------- */
+
+/* The X server's "IDLETIME" counter (SYNC extension, libXext) counts the
+ * milliseconds since the keyboard or mouse was last touched; it is the
+ * number the screensaver and power manager go by, and needs no daemon of
+ * its own. It is not reset by a screen being turned off or by a program
+ * playing video, only by input. Its id doesn't change while the X server
+ * runs, so it is looked up once, on first use. */
+static gboolean idle_lookup_done = FALSE;
+static XSyncCounter idle_counter = None;
+
+static void
+find_idle_counter(Display *xdisplay)
+{
+    int event_base, error_base, major, minor, count = 0;
+
+    idle_lookup_done = TRUE;
+
+    if (!XSyncQueryExtension(xdisplay, &event_base, &error_base) ||
+        !XSyncInitialize(xdisplay, &major, &minor))
+        return;
+
+    XSyncSystemCounter *counters = XSyncListSystemCounters(xdisplay, &count);
+    if (counters == NULL)
+        return;
+
+    for (int i = 0; i < count; i++)
+    {
+        if (g_strcmp0(counters[i].name, "IDLETIME") == 0)
+        {
+            idle_counter = counters[i].counter;
+            break;
+        }
+    }
+
+    XSyncFreeSystemCounterList(counters);
+}
+
+/* Milliseconds since the user last touched the keyboard or mouse, or -1
+ * if that can't be told (not running under X11, or the X server has no
+ * idle counter). */
+static gint64
+idle_time_ms(void)
+{
+    GdkDisplay *display = gdk_display_get_default();
+
+    if (display == NULL || !GDK_IS_X11_DISPLAY(display))
+        return -1;
+
+    Display *xdisplay = GDK_DISPLAY_XDISPLAY(display);
+
+    if (!idle_lookup_done)
+        find_idle_counter(xdisplay);
+
+    if (idle_counter == None)
+        return -1;
+
+    /* An X error here would make GDK abort the whole panel; trap it. */
+    XSyncValue value;
+    gdk_x11_display_error_trap_push(display);
+    Status ok = XSyncQueryCounter(xdisplay, idle_counter, &value);
+    gint error = gdk_x11_display_error_trap_pop(display);
+
+    if (!ok || error != 0)
+        return -1;
+
+    return ((gint64) XSyncValueHigh32(value) << 32) | (gint64) XSyncValueLow32(value);
+}
+
+/* --- turning the screen off -------------------------------------------------------- */
+
+static void
+load_blank_setting(ExtrasMenuCaffeine *self)
+{
+    if (extras_menu_caffeine_config_get_screen_off_enabled())
+        self->blank_after_ms = (gint64) extras_menu_caffeine_config_get_screen_off_minutes() * 60 * 1000;
+    else
+        self->blank_after_ms = 0;
+}
+
+static void
+stop_blanking(ExtrasMenuCaffeine *self)
+{
+    if (self->blank_id != 0)
+    {
+        g_source_remove(self->blank_id);
+        self->blank_id = 0;
+    }
+
+    self->screen_is_off = FALSE;
+}
+
+/* Switches the display off, and nothing else (no lock, no suspend).
+ * Fire and forget; GLib reaps the child. */
+static void
+blank_screen(void)
+{
+    GError *error = NULL;
+
+    if (!g_spawn_command_line_async(BLANK_COMMAND, &error))
+    {
+        g_warning("extras-menu: caffeine: couldn't turn the screen off with '%s': %s",
+                  BLANK_COMMAND, error != NULL ? error->message : "unknown error");
+        g_clear_error(&error);
+    }
+}
+
+static gboolean
+on_blank_check(gpointer user_data)
+{
+    ExtrasMenuCaffeine *self = user_data;
+    gint64 idle = idle_time_ms();
+
+    if (idle < 0)
+    {
+        g_warning("extras-menu: caffeine: can't tell how long the computer has been idle "
+                  "(this needs X11), so the screen will not be turned off");
+        self->blank_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+
+    if (idle < self->blank_after_ms)
+    {
+        /* Somebody is there (or has just come back): the next absence
+         * gets its own turn-off. */
+        self->screen_is_off = FALSE;
+        return G_SOURCE_CONTINUE;
+    }
+
+    if (!self->screen_is_off)
+    {
+        self->screen_is_off = TRUE;
+        blank_screen();
+    }
+
+    return G_SOURCE_CONTINUE;
+}
+
+/* (Re)starts watching for idle time, if Caffeine is on and the feature
+ * is switched on; otherwise just stops any watching. */
+static void
+start_blanking(ExtrasMenuCaffeine *self)
+{
+    stop_blanking(self);
+
+    if (!self->active || self->blank_after_ms == 0)
+        return;
+
+    self->blank_id = g_timeout_add_seconds(BLANK_CHECK_SECONDS, on_blank_check, self);
+}
+
 /* --- the pill --------------------------------------------------------------------- */
 
 static void
@@ -394,6 +563,18 @@ refresh(ExtrasMenuCaffeine *self)
         }
     }
 
+    /* While it is on, say if the screen will be turned off too. */
+    if (self->active && self->blank_after_ms != 0)
+    {
+        gchar *length = format_duration((guint) (self->blank_after_ms / 60000));
+        gchar *with_screen = g_strdup_printf("%s\nThe screen turns off after %s without activity",
+                                             tooltip, length);
+
+        g_free(length);
+        g_free(tooltip);
+        tooltip = with_screen;
+    }
+
     gtk_widget_set_tooltip_text(self->pill, tooltip);
     g_free(tooltip);
 }
@@ -414,10 +595,12 @@ set_active(ExtrasMenuCaffeine *self, gboolean active)
 
         self->active = TRUE;
         arm_expiry(self);
+        start_blanking(self);
     }
     else if (!active && self->active)
     {
         clear_expiry(self);
+        stop_blanking(self);
         release_all(self);
         self->active = FALSE;
     }
@@ -436,14 +619,20 @@ on_pill_clicked(GtkButton *button, gpointer user_data)
     set_active(self, !self->active);
 }
 
-/* The saved duration changed: a running countdown starts again with it. */
+/* A saved setting changed: a running countdown starts again with the
+ * new duration, and the screen-off watching with the new setting. */
 static void
 on_config_changed(gpointer user_data)
 {
     ExtrasMenuCaffeine *self = user_data;
 
+    load_blank_setting(self);
+
     if (self->active)
+    {
         arm_expiry(self);
+        start_blanking(self);
+    }
 
     refresh(self);
 }
@@ -470,6 +659,7 @@ extras_menu_caffeine_new(GtkWidget *pill, ExtrasMenuCaffeineMessageFunc message_
      * the look. */
     self->clicked_id = g_signal_connect(pill, "clicked", G_CALLBACK(on_pill_clicked), self);
     self->config_listener = extras_menu_caffeine_config_add_listener(on_config_changed, self);
+    load_blank_setting(self);
 
     refresh(self);
     return self;
@@ -485,6 +675,7 @@ extras_menu_caffeine_free(ExtrasMenuCaffeine *self)
 
     /* Don't leave the computer unable to sleep behind us. */
     clear_expiry(self);
+    stop_blanking(self);
     release_all(self);
 
     g_signal_handler_disconnect(self->pill, self->clicked_id);

@@ -18,6 +18,16 @@ G_BEGIN_DECLS
  * on. Both requests are tied to this process's connection to the
  * session bus, so if the panel dies the services let go by themselves.
  *
+ * Optionally (a user setting, off by default) Caffeine also turns the
+ * screen off: while it is on and the keyboard and mouse haven't been
+ * touched for the chosen number of minutes, the display is switched off
+ * with "xset dpms force off". Nothing else happens: the screen isn't
+ * locked and the computer doesn't sleep, and the first key press or
+ * mouse move turns the display back on. After that the idle time starts
+ * counting again, so it will turn off once more if nobody comes back.
+ * Where the idle time can't be read (not X11), this is silently
+ * unavailable and the rest of Caffeine works as before.
+ *
  * The pill always starts off. How long it stays on is a user setting
  * (see preferences/caffeine-config.h): by default until it is clicked
  * off again, otherwise for that many minutes, after which it turns
