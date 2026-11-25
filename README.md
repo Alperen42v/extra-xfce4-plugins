@@ -30,6 +30,7 @@ Each plugin lives in its own directory with a dedicated README covering details,
 | ☕ **Caffeine** | Prevents the screen from sleeping or locking when you need it to stay awake. | [README](./caffeine-plugin/README.md) |
 | 🌙 **Nightlight** | Reduces eye strain by adjusting screen color temperature. | [README](./nightlight-plugin/README.md) |
 | 📂 **Extras-menu** | Provides a convenient menu for quick access to extra tools. | [README](./extras-menu-plugin/README.md) |
+| 📱 ** My KDE Connect** | Shows your connected phones in the panel and lets you send files, clipboard and more. | [README](./my-kdeconnect-plugin/README.md) |
 
 ## 🚀 Getting Started
 

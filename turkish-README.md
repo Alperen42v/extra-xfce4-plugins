@@ -30,6 +30,7 @@ Her eklentinin kendi dizini ve ayrıntılı bilgi, kurulum ve kullanım içeren 
 | ☕ **Caffeine** | Ekranın uykuya geçmesini veya kilitlenmesini gerektiğinde engeller. | [README](./caffeine-plugin/turkish-README.md) |
 | 🌙 **Nightlight** | Ekran renk sıcaklığını ayarlayarak göz yorgunluğunu azaltır. | [README](./nightlight-plugin/turkish-README.md) |
 | 📂 **Extras-menu** | Ek araçlara hızlı erişim için pratik bir menü sunar. | [README](./extras-menu-plugin/turkish-README.md) |
+| 📱 ** My KDE Connect** | Bağlı telefonlarınızı panelde gösterir. dosya, pano ve daha fazlasını göndermenizi sağlar. | [README](./my-kdeconnect-plugin/turkish-README.md) |
 
 ## 🚀 Başlarken
 

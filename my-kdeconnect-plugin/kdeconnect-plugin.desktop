@@ -1,0 +1,10 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+Name=My KDE Connect
+Comment=Send clipboard, files, text and pings to your KDE Connect devices
+Icon=kdeconnect
+X-XFCE-Internal=false
+X-XFCE-API=2.0
+X-XFCE-Module=kdeconnect
+X-XFCE-Module-Path=
