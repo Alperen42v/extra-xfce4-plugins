@@ -22,6 +22,7 @@
 The goal is not just to ship a few plugins, but to grow a project shaped by ideas and contributions from the community.
 
 ## 🧩 Plugins
+Upcoming update: Wayland support will be added to each one, one by one…
 
 Each plugin lives in its own directory with a dedicated README covering details, installation, and usage.
 

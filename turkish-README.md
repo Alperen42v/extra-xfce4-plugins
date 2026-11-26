@@ -22,6 +22,7 @@
 Amaç yalnızca birkaç eklenti sunmak değil; topluluktan gelen fikirler ve katkılarla büyüyen bir proje ortaya çıkarmaktır.
 
 ## 🧩 Eklentiler
+Yaklaşan güncellleme:  Wayland desteği getirilecek teker teker hepsine...
 
 Her eklentinin kendi dizini ve ayrıntılı bilgi, kurulum ve kullanım içeren kendi README dosyası vardır.
 
