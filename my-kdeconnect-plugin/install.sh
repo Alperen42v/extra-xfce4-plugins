@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 #
-# My KDE Connect panel plugin -- install / uninstall script (Arch Linux, XFCE4)
+# My KDE Connect panel plugin -- install / uninstall script
+# (Arch Linux, Debian/Ubuntu, Fedora -- XFCE4)
 #
 #   ./install.sh              installs the plugin
 #   ./install.sh uninstall    removes it   (./uninstall.sh does the same)
 #
 # The plugin is installed per user (under ~/.local), so no root is
-# needed. sudo is only asked for when installing dependencies with pacman.
+# needed. sudo is only asked for when installing dependencies with the
+# system package manager (pacman, apt or dnf).
 # For a system-wide install, run `sudo make install` yourself instead.
+#
+# Supported distributions (derivatives are detected through ID_LIKE in
+# /etc/os-release, e.g. Manjaro, Linux Mint, Pop!_OS, Rocky):
+#   Arch Linux            -> pacman
+#   Debian / Ubuntu       -> apt
+#   Fedora                -> dnf
 
 set -euo pipefail
 
@@ -22,13 +30,11 @@ PLUGIN_NAME="kdeconnect"
 PLUGIN_SO="$HOME/.local/lib/xfce4/panel/plugins/lib${PLUGIN_NAME}.so"
 PLUGIN_DESKTOP="$HOME/.local/share/xfce4/panel/plugins/kdeconnect-plugin.desktop"
 
-# Package groups: pacman -T cannot check a group name, so the members of
-# the group are looked up and checked one by one.
-GROUP_DEPS=(base-devel)
-
-# Needed to build and run the plugin (kdeconnect is required: the plugin
-# talks to its daemon).
-DEPS=(pkgconf gtk3 xfce4-panel libxfce4util kdeconnect libarchive)
+# Filled in by detect_distro / set_distro_packages.
+DISTRO_FAMILY=""   # arch | debian | fedora
+DISTRO_NAME=""     # human readable name, for the banner
+GROUP_DEPS=()      # package groups (Arch only, see set_distro_packages)
+DEPS=()            # needed to build and run the plugin
 
 # Where the plugin keeps its settings. Panel plugins usually store them in
 # ~/.config/xfce4/panel/<plugin>-<id>.rc, or in an xfconf channel named
@@ -91,21 +97,128 @@ warn_system_copy() {
     fi
 }
 
+# --- distribution support ---------------------------------------------------------
+
+# Finds out which package manager family this system uses, first from
+# /etc/os-release (ID, then ID_LIKE, so derivatives work too), then, as a
+# fallback, from the package manager that is installed.
+detect_distro() {
+    local id="" id_like="" pretty="" token
+
+    if [[ -r /etc/os-release ]]; then
+        # Read in a subshell so the os-release variables don't leak into
+        # this script (it prints exactly three lines, empty ones included).
+        {
+            read -r id
+            read -r id_like
+            read -r pretty
+        } < <(. /etc/os-release; printf '%s\n%s\n%s\n' "${ID:-}" "${ID_LIKE:-}" "${PRETTY_NAME:-}") || true
+    fi
+
+    DISTRO_FAMILY=""
+    # shellcheck disable=SC2086  # word splitting of ID_LIKE is intended
+    for token in $id $id_like; do
+        case "$token" in
+            arch)             DISTRO_FAMILY="arch" ;;
+            debian|ubuntu)    DISTRO_FAMILY="debian" ;;
+            fedora)           DISTRO_FAMILY="fedora" ;;
+        esac
+        [[ -z "$DISTRO_FAMILY" ]] || break
+    done
+
+    if [[ -z "$DISTRO_FAMILY" ]]; then
+        if   command -v pacman  >/dev/null; then DISTRO_FAMILY="arch"
+        elif command -v apt-get >/dev/null; then DISTRO_FAMILY="debian"
+        elif command -v dnf     >/dev/null; then DISTRO_FAMILY="fedora"
+        fi
+    fi
+
+    DISTRO_NAME="${pretty:-${id:-unknown}}"
+}
+
+# Sets the package lists. Package names differ between distributions
+# (e.g. gtk3 / libgtk-3-dev / gtk3-devel), so each family has its own.
+#
+# Arch has the "base-devel" group, which pacman -T cannot check, so its
+# members are looked up and checked one by one (see install_dependencies).
+# Debian has the build-essential package; Fedora has no single package, so
+# the compiler tools are listed one by one.
+# kdeconnect is required: the plugin talks to its daemon.
+set_distro_packages() {
+    case "$DISTRO_FAMILY" in
+        arch)
+            GROUP_DEPS=(base-devel)
+            DEPS=(pkgconf gtk3 xfce4-panel libxfce4util kdeconnect libarchive)
+            ;;
+        debian)
+            GROUP_DEPS=()
+            DEPS=(build-essential pkg-config libgtk-3-dev libxfce4panel-2.0-dev
+                  libxfce4util-dev kdeconnect libarchive-dev)
+            ;;
+        fedora)
+            GROUP_DEPS=()
+            DEPS=(gcc gcc-c++ make pkgconf-pkg-config gtk3-devel xfce4-panel-devel
+                  libxfce4util-devel kde-connect libarchive-devel)
+            ;;
+        *)
+            die "Unsupported distribution (${DISTRO_NAME:-unknown}). Supported: Arch Linux, Debian/Ubuntu, Fedora (and their derivatives)."
+            ;;
+    esac
+}
+
+# missing_packages pkg... -- prints the given packages that are NOT
+# installed, one per line.
+missing_packages() {
+    local p
+    case "$DISTRO_FAMILY" in
+        arch)
+            # pacman -T lists the packages that are NOT installed (it also
+            # takes "provides" into account, so e.g. a replacement package
+            # counts). It exits with 127 when something is missing.
+            pacman -T "$@" || true
+            ;;
+        debian)
+            for p in "$@"; do
+                if [[ "$(dpkg-query -W -f='${db:Status-Status}' "$p" 2>/dev/null || true)" != "installed" ]]; then
+                    printf '%s\n' "$p"
+                fi
+            done
+            ;;
+        fedora)
+            for p in "$@"; do
+                # --whatprovides also accepts package names and "provides"
+                if ! rpm -q --quiet --whatprovides "$p"; then
+                    printf '%s\n' "$p"
+                fi
+            done
+            ;;
+    esac
+}
+
+# install_packages pkg... -- installs packages with the system package
+# manager (asks for the sudo password; the package manager asks for
+# confirmation itself).
+install_packages() {
+    case "$DISTRO_FAMILY" in
+        arch)   sudo pacman -S --needed "$@" ;;
+        debian) sudo apt-get update && sudo apt-get install "$@" ;;
+        fedora) sudo dnf install "$@" ;;
+    esac
+}
+
 # --- install ----------------------------------------------------------------------
 
 install_dependencies() {
     step "Checking dependencies..."
 
-    # Expand the groups (base-devel) into their member packages.
+    # Expand the groups (Arch: base-devel) into their member packages.
     local group_pkgs=() g
     for g in "${GROUP_DEPS[@]}"; do
         mapfile -t -O "${#group_pkgs[@]}" group_pkgs < <(pacman -Sgq "$g")
     done
 
-    # pacman -T lists the packages that are NOT installed (it also takes
-    # "provides" into account, so e.g. a replacement package counts).
     local missing=()
-    mapfile -t missing < <(pacman -T "${group_pkgs[@]}" "${DEPS[@]}" || true)
+    mapfile -t missing < <(missing_packages "${group_pkgs[@]}" "${DEPS[@]}")
 
     if (( ${#missing[@]} == 0 )); then
         ok "Dependencies are already installed!"
@@ -113,17 +226,20 @@ install_dependencies() {
         warn "Missing dependencies: ${missing[*]}"
         info "Installing the missing ones (you may be asked for your sudo password)..."
         command -v sudo >/dev/null || die "sudo not found. Install these by hand: ${missing[*]}"
-        sudo pacman -S --needed "${missing[@]}" || die "Could not install the dependencies."
+        install_packages "${missing[@]}" || die "Could not install the dependencies."
         ok "Dependencies installed."
     fi
 }
 
 do_install() {
-    command -v pacman >/dev/null || die "This script is written for Arch Linux (pacman)."
+    detect_distro
+    set_distro_packages
     [[ -f Makefile && -f kdeconnect-plugin.desktop && -d panel-plugin ]] \
         || die "Makefile, kdeconnect-plugin.desktop or panel-plugin/ not found. Run this script from the project's main folder."
 
     banner
+    info "Detected system: $DISTRO_NAME ($DISTRO_FAMILY)"
+    echo
 
     if ! ask "Install My KDE Connect panel plugin? Are you sure?"; then
         abort

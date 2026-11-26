@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 #
-# Night Light -- install / uninstall script (Arch Linux, XFCE4)
+# Night Light -- install / uninstall script
+# (Arch Linux, Debian/Ubuntu, Fedora -- XFCE4)
 #
 #   ./install.sh              installs the plugin
 #   ./install.sh uninstall    removes it   (./uninstall.sh does the same)
 #
 # The plugin is installed per user (~/.local), so no root is needed. sudo is
-# only asked for when installing dependencies with pacman.
+# only asked for when installing dependencies with the system package
+# manager (pacman, apt or dnf).
+#
+# Supported distributions (derivatives are detected through ID_LIKE in
+# /etc/os-release, e.g. Manjaro, Linux Mint, Pop!_OS, Rocky):
+#   Arch Linux            -> pacman
+#   Debian / Ubuntu       -> apt
+#   Fedora                -> dnf
 
 set -euo pipefail
 
@@ -25,16 +33,11 @@ PLUGIN_DESKTOP="$PREFIX/share/xfce4/panel/plugins/${PLUGIN_NAME}.desktop"
 # Translations are installed as <locale dir>/<lang>/LC_MESSAGES/nightlight.mo
 LOCALE_DIR="$PREFIX/share/locale"
 
-# Needed to build the plugin (matches the PKGS list in the Makefile, plus
-# gettext for msgfmt, which compiles the translations). The same libraries
-# are needed while the plugin is running.
-BUILD_DEPS=(make gcc pkgconf gettext gtk3 xfce4-panel libxfce4util libx11 libxrandr)
-
-# Only warned about when missing, never installed automatically:
-# "package:what it is needed for".
-OPTIONAL_DEPS=(
-    "adwaita-icon-theme:panel icon (weather-clear symbolic icons)"
-)
+# Filled in by detect_distro / set_distro_packages.
+DISTRO_FAMILY=""   # arch | debian | fedora
+DISTRO_NAME=""     # human readable name, for the banner
+BUILD_DEPS=()      # needed to build the plugin
+OPTIONAL_DEPS=()   # only warned about when missing: "package:what it is needed for"
 
 # Where the panel keeps this plugin's settings (the user is asked before they
 # are deleted). The panel names the file nightlight-<id>.rc.
@@ -91,6 +94,129 @@ banner() {
     printf '  %sBlue light reduction panel plugin for XFCE4%s\n\n' "$BLUE" "$RESET"
 }
 
+# --- distribution support ---------------------------------------------------------
+
+# Finds out which package manager family this system uses, first from
+# /etc/os-release (ID, then ID_LIKE, so derivatives work too), then, as a
+# fallback, from the package manager that is installed.
+detect_distro() {
+    local id="" id_like="" pretty="" token
+
+    if [[ -r /etc/os-release ]]; then
+        # Read in a subshell so the os-release variables don't leak into
+        # this script (it prints exactly three lines, empty ones included).
+        {
+            read -r id
+            read -r id_like
+            read -r pretty
+        } < <(. /etc/os-release; printf '%s\n%s\n%s\n' "${ID:-}" "${ID_LIKE:-}" "${PRETTY_NAME:-}") || true
+    fi
+
+    DISTRO_FAMILY=""
+    # shellcheck disable=SC2086  # word splitting of ID_LIKE is intended
+    for token in $id $id_like; do
+        case "$token" in
+            arch)             DISTRO_FAMILY="arch" ;;
+            debian|ubuntu)    DISTRO_FAMILY="debian" ;;
+            fedora)           DISTRO_FAMILY="fedora" ;;
+        esac
+        [[ -z "$DISTRO_FAMILY" ]] || break
+    done
+
+    if [[ -z "$DISTRO_FAMILY" ]]; then
+        if   command -v pacman  >/dev/null; then DISTRO_FAMILY="arch"
+        elif command -v apt-get >/dev/null; then DISTRO_FAMILY="debian"
+        elif command -v dnf     >/dev/null; then DISTRO_FAMILY="fedora"
+        fi
+    fi
+
+    DISTRO_NAME="${pretty:-${id:-unknown}}"
+}
+
+# Sets the package lists. Package names differ between distributions
+# (e.g. gtk3 / libgtk-3-dev / gtk3-devel), so each family has its own.
+#
+# BUILD_DEPS matches the PKGS list in the Makefile, plus gettext for
+# msgfmt, which compiles the translations. The same libraries are needed
+# while the plugin is running (the -dev/-devel packages pull them in).
+set_distro_packages() {
+    case "$DISTRO_FAMILY" in
+        arch)
+            BUILD_DEPS=(make gcc pkgconf gettext gtk3 xfce4-panel libxfce4util
+                        libx11 libxrandr)
+            ;;
+        debian)
+            BUILD_DEPS=(make gcc pkg-config gettext libgtk-3-dev
+                        libxfce4panel-2.0-dev libxfce4util-dev libx11-dev
+                        libxrandr-dev)
+            ;;
+        fedora)
+            BUILD_DEPS=(make gcc pkgconf-pkg-config gettext gtk3-devel
+                        xfce4-panel-devel libxfce4util-devel libX11-devel
+                        libXrandr-devel)
+            ;;
+        *)
+            die "Unsupported distribution (${DISTRO_NAME:-unknown}). Supported: Arch Linux, Debian/Ubuntu, Fedora (and their derivatives)."
+            ;;
+    esac
+
+    # Only warned about when missing, never installed automatically. The
+    # package name is the same on all supported distributions.
+    OPTIONAL_DEPS=(
+        "adwaita-icon-theme:panel icon (weather-clear symbolic icons)"
+    )
+}
+
+# missing_packages pkg... -- prints the given packages that are NOT
+# installed, one per line.
+missing_packages() {
+    local p
+    case "$DISTRO_FAMILY" in
+        arch)
+            # pacman -T lists the packages that are NOT installed (it also
+            # takes "provides" into account, so e.g. a replacement package
+            # counts). It exits with 127 when something is missing.
+            pacman -T "$@" || true
+            ;;
+        debian)
+            for p in "$@"; do
+                if [[ "$(dpkg-query -W -f='${db:Status-Status}' "$p" 2>/dev/null || true)" != "installed" ]]; then
+                    printf '%s\n' "$p"
+                fi
+            done
+            ;;
+        fedora)
+            for p in "$@"; do
+                # --whatprovides also accepts package names and "provides"
+                if ! rpm -q --quiet --whatprovides "$p"; then
+                    printf '%s\n' "$p"
+                fi
+            done
+            ;;
+    esac
+}
+
+# install_packages pkg... -- installs packages with the system package
+# manager (asks for the sudo password; the package manager asks for
+# confirmation itself).
+install_packages() {
+    case "$DISTRO_FAMILY" in
+        arch)   sudo pacman -S --needed "$@" ;;
+        debian) sudo apt-get update && sudo apt-get install "$@" ;;
+        fedora) sudo dnf install "$@" ;;
+    esac
+}
+
+# install_hint pkg -- the command a user can run to install one package
+# by hand (used in warnings).
+install_hint() {
+    case "$DISTRO_FAMILY" in
+        arch)   printf 'sudo pacman -S %s' "$1" ;;
+        debian) printf 'sudo apt install %s' "$1" ;;
+        fedora) printf 'sudo dnf install %s' "$1" ;;
+    esac
+}
+
 # --- install ----------------------------------------------------------------------
 
 is_wayland() {
@@ -100,10 +226,8 @@ is_wayland() {
 install_dependencies() {
     step "Checking dependencies..."
 
-    # pacman -T lists the packages that are NOT installed (it also takes
-    # "provides" into account, so e.g. a replacement package counts).
     local missing=()
-    mapfile -t missing < <(pacman -T "${BUILD_DEPS[@]}" || true)
+    mapfile -t missing < <(missing_packages "${BUILD_DEPS[@]}")
 
     if (( ${#missing[@]} == 0 )); then
         ok "Dependencies are already installed!"
@@ -111,7 +235,7 @@ install_dependencies() {
         warn "Missing dependencies: ${missing[*]}"
         info "Installing the missing ones (you may be asked for your sudo password)..."
         command -v sudo >/dev/null || die "sudo not found. Install these by hand: ${missing[*]}"
-        sudo pacman -S --needed "${missing[@]}" || die "Could not install the dependencies."
+        install_packages "${missing[@]}" || die "Could not install the dependencies."
         ok "Dependencies installed."
     fi
 
@@ -121,17 +245,20 @@ install_dependencies() {
     for entry in "${OPTIONAL_DEPS[@]}"; do
         pkg="${entry%%:*}"
         what="${entry#*:}"
-        if [[ -n "$(pacman -T "$pkg" || true)" ]]; then
-            warn "$pkg is not installed, so the $what may not show up. (sudo pacman -S $pkg)"
+        if [[ -n "$(missing_packages "$pkg")" ]]; then
+            warn "$pkg is not installed, so the $what may not show up. ($(install_hint "$pkg"))"
         fi
     done
 }
 
 do_install() {
-    command -v pacman >/dev/null || die "This script is written for Arch Linux (pacman)."
+    detect_distro
+    set_distro_packages
     [[ -f Makefile ]] || die "Makefile not found. Run this script from the project's main folder."
 
     banner
+    info "Detected system: $DISTRO_NAME ($DISTRO_FAMILY)"
+    echo
 
     if ! ask "Install $DISPLAY_NAME? Are you sure?"; then
         abort
